@@ -2,18 +2,26 @@
 #
 #   scrontab -e
 #
-# then paste the #SCRON block below (adjust the log path's username first).
-# List installed entries with `scrontab -l`.
+# then paste the #SCRON block below. #SCRON directives are parsed the same
+# way #SBATCH ones are -- literally, no shell variable expansion -- so the
+# paths below are hardcoded to $GROUP_HOME/pipelines rather than $GROUP_HOME
+# itself; replace /home/groups/illorent with your actual $GROUP_HOME if
+# different. List installed entries with `scrontab -l`.
 #
 # Runs every 5 minutes on Sherlock's own scheduler instead of a real crontab
 # (disabled for users on login nodes) -- see poll_and_deploy.sh for what
 # actually happens each run: fetch, deploy if origin moved, otherwise a
 # near-instant no-op.
+#
+# Only one lab member's Unix account needs to own this scrontab entry --
+# scrontab is inherently per-user, but everything it writes to and deploys
+# lives under the shared $GROUP_HOME, so the effect (deployed code, logs) is
+# visible to the whole group regardless of whose account is running the poll.
 
 #SCRON --job-name=lab_pipelines_deploy
 #SCRON --partition=normal
 #SCRON --time=00:02:00
 #SCRON --cpus-per-task=1
 #SCRON --mem=1G
-#SCRON --output=/scratch/users/atharvp8/logs/deploy/scrontab_%j.out
-*/5 * * * * /home/users/atharvp8/pipelines/deploy/poll_and_deploy.sh
+#SCRON --output=/home/groups/illorent/pipelines/logs/deploy/scrontab_%j.out
+*/5 * * * * /home/groups/illorent/pipelines/deploy/poll_and_deploy.sh

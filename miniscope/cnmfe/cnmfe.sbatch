@@ -29,7 +29,7 @@
 # location, so BASH_SOURCE-derived paths don't work here. CAIMAN_ROOT points
 # at the `current` symlink the deploy agent maintains (see
 # deploy/poll_and_deploy.sh) instead.
-CAIMAN_ROOT="${CAIMAN_ROOT:-$HOME/pipelines/current/miniscope}"
+CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/miniscope}"
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 
 MOUSE="${1-}"

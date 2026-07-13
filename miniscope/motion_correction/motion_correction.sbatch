@@ -26,7 +26,7 @@
 # does not work here. CAIMAN_ROOT is fixed instead, pointing at the `current`
 # symlink the deploy agent maintains (see deploy/poll_and_deploy.sh) --
 # override via env var if the deployment location ever changes.
-CAIMAN_ROOT="${CAIMAN_ROOT:-$HOME/pipelines/current/miniscope}"
+CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/miniscope}"
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 
 MOUSE="${1-}"

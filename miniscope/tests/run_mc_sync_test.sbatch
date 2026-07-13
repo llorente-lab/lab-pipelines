@@ -21,7 +21,7 @@
 #
 #   sbatch run_mc_sync_test.sbatch
 
-CAIMAN_ROOT="${CAIMAN_ROOT:-$HOME/pipelines/current/miniscope}"
+CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/miniscope}"
 source "$CAIMAN_ROOT/common/env_setup.sh"
 set -euo pipefail
 

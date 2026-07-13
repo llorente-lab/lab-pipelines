@@ -1,0 +1,171 @@
+#!/bin/bash
+# `run` -- the one command a lab member needs to run pipelines, check on
+# them, and find their logs, without ever cd-ing into the deployed tree or
+# remembering sbatch argument order/paths.
+#
+# Deliberately Miniscope-specific right now, not a generic multi-pipeline
+# dispatcher: there's only one real pipeline built so far, and designing a
+# generic manifest-driven interpreter against a single data point would be
+# guessing. When a second pipeline (e.g. MoSeq) actually exists, the
+# duplication between its wiring and Miniscope's here is what should inform
+# a real generic design, not the other way around. See cli/README.md.
+#
+# This file is deployed through the same `current` symlink as everything
+# else (env_setup.sh puts cli/ on $PATH), so it updates automatically on
+# every deploy -- no separate install/versioning story.
+
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+run -- run and monitor lab pipelines, no cd required
+
+Usage:
+  run miniscope motion-correction [--mouse M [--date D --tp T]]
+  run miniscope cnmfe             [--mouse M [--date D --tp T]]
+  run miniscope master
+  run status
+  run logs miniscope <stage> --mouse M --date D --tp T
+  run list
+
+Granularity for motion-correction/cnmfe (matches the underlying .sbatch):
+  no flags               full sweep, reconciliation-driven
+  --mouse M              everything reconciliation finds for that mouse
+  --mouse M --date D --tp T   exactly one session, runs directly
+
+Examples:
+  run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
+  run miniscope motion-correction --mouse VK_20250101_a
+  run miniscope motion-correction
+  run status
+  run logs miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
+EOF
+}
+
+if [ -z "${CAIMAN_MC_DIR-}" ] || [ -z "${CAIMAN_CNMFE_DIR-}" ] || [ -z "${CAIMAN_ROOT_DIR-}" ]; then
+  echo "run: environment not set up -- have you sourced env_setup.sh? (see cli/setup.sh)" >&2
+  exit 1
+fi
+
+# --- flag parsing shared by motion-correction/cnmfe/logs ---------------------
+
+parse_session_flags() {
+  MOUSE=""
+  DATE=""
+  TP=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --mouse) MOUSE="$2"; shift 2 ;;
+      --date)  DATE="$2"; shift 2 ;;
+      --tp)    TP="$2"; shift 2 ;;
+      *) echo "run: unrecognized argument '$1'" >&2; usage; exit 1 ;;
+    esac
+  done
+}
+
+# --- resolve the analyzed-data base the same way every other script does ----
+# (matches motion_correct.py/cnmfe_modeling.py/sync.sh's own fallback, so
+# `run logs` finds the exact same directory those scripts actually wrote to)
+
+analyzed_base() {
+  echo "${MINISCOPE_ANALYZED_BASE:-$SCRATCH/Miniscope/AnalyzedData}"
+}
+
+# --- subcommands --------------------------------------------------------
+
+cmd_miniscope() {
+  local stage="${1-}"; shift || true
+  case "$stage" in
+    motion-correction)
+      parse_session_flags "$@"
+      if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
+        sbatch "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
+      elif [ -n "$MOUSE" ]; then
+        sbatch "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
+      else
+        sbatch "$CAIMAN_MC_DIR/motion_correction.sbatch"
+      fi
+      ;;
+    cnmfe)
+      parse_session_flags "$@"
+      if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
+        sbatch "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
+      elif [ -n "$MOUSE" ]; then
+        sbatch "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
+      else
+        sbatch "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
+      fi
+      ;;
+    master)
+      sbatch "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
+      ;;
+    "")
+      echo "run: missing stage -- try 'motion-correction', 'cnmfe', or 'master'" >&2
+      exit 1
+      ;;
+    *)
+      echo "run: unknown miniscope stage '$stage'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+cmd_status() {
+  # Scoped to this pipeline's known job names rather than a bare `squeue -u`,
+  # so this doesn't also show unrelated interactive/other-project jobs.
+  squeue -u "$USER" --name=motion_correction,cnmfe,caiman_master,caiman_pipeline_test,lab_pipelines_deploy
+}
+
+cmd_logs() {
+  local pipeline="${1-}"; shift || true
+  if [ "$pipeline" != "miniscope" ]; then
+    echo "run logs: only 'miniscope' is supported right now" >&2
+    exit 1
+  fi
+  local stage="${1-}"; shift || true
+  if [ "$stage" != "motion-correction" ] && [ "$stage" != "cnmfe" ]; then
+    echo "run logs: stage must be 'motion-correction' or 'cnmfe'" >&2
+    exit 1
+  fi
+  parse_session_flags "$@"
+  if [ -z "$MOUSE" ] || [ -z "$DATE" ] || [ -z "$TP" ]; then
+    echo "run logs: --mouse, --date, and --tp are all required" >&2
+    exit 1
+  fi
+
+  local stage_tag="motion_correct"
+  [ "$stage" = "cnmfe" ] && stage_tag="cnmfe"
+
+  local log_dir
+  log_dir="$(analyzed_base)/$MOUSE/$DATE/$TP/logs"
+  local latest
+  latest="$(ls -t "$log_dir"/${stage_tag}_*.log 2>/dev/null | head -n1 || true)"
+  if [ -z "$latest" ]; then
+    echo "run logs: no ${stage_tag} log found under $log_dir yet" >&2
+    exit 1
+  fi
+  echo "run logs: tailing $latest (Ctrl-C to stop)"
+  tail -F "$latest"
+}
+
+cmd_list() {
+  cat <<'EOF'
+Pipelines and stages currently wired up:
+
+miniscope
+  motion-correction   run miniscope motion-correction [--mouse M [--date D --tp T]]
+  cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]]
+  master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E)
+EOF
+}
+
+# --- dispatch ----------------------------------------------------------
+
+case "${1-}" in
+  miniscope) shift; cmd_miniscope "$@" ;;
+  status)    shift; cmd_status "$@" ;;
+  logs)      shift; cmd_logs "$@" ;;
+  list)      shift; cmd_list "$@" ;;
+  -h|--help|"") usage ;;
+  *) echo "run: unknown command '$1'" >&2; usage; exit 1 ;;
+esac

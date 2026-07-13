@@ -9,7 +9,10 @@
 # script periodically checks whether origin has moved, and if so, deploys.
 # Same idea as Flux/ArgoCD, scaled down to a scheduled Slurm job for a small lab.
 #
-# Deploy layout (all under $PIPELINES_ROOT, default ~/pipelines):
+# Deploy layout (all under $PIPELINES_ROOT, default $GROUP_HOME/pipelines --
+# shared across the whole lab's group account, not any one person's $HOME, so
+# every lab member's jobs resolve the same deployed code through the same
+# `current` symlink, and nobody needs their own separate bootstrap):
 #   _repo/            persistent clone, `git fetch` happens here
 #   releases/<sha>/   one git worktree per deployed commit (cheap, no re-clone)
 #   current -> releases/<sha>/    atomically-flipped symlink every pipeline's
@@ -79,7 +82,12 @@ fi
 
 REPO_URL="${REPO_URL:-git@github.com:REPLACE_ME/lab-pipelines.git}"
 BRANCH="${BRANCH:-main}"
-PIPELINES_ROOT="${PIPELINES_ROOT:-$HOME/pipelines}"
+
+# $GROUP_HOME is shared, backed up, and never purged -- the right tier for
+# code every lab member's jobs depend on. Falls back to personal $HOME only
+# if $GROUP_HOME genuinely isn't set (e.g. testing outside Sherlock), not as
+# a silent everyday default -- this should be shared infrastructure.
+PIPELINES_ROOT="${PIPELINES_ROOT:-${GROUP_HOME:-$HOME}/pipelines}"
 
 # Cron doesn't source ~/.bashrc, so $SCRATCH may not be set the way it is in
 # an interactive shell. Fall back to Sherlock's standard scratch path
@@ -91,7 +99,11 @@ RELEASES_DIR="$PIPELINES_ROOT/releases"
 CURRENT_LINK="$PIPELINES_ROOT/current"
 KEEP_RELEASES=5
 
-DEPLOY_LOG_DIR="$SCRATCH/logs/deploy"
+# Deploy history is small text, useful for the whole group to see (who
+# deployed what, when), and worth keeping past personal $SCRATCH's ~90-day
+# purge window -- lives under $PIPELINES_ROOT itself rather than personal
+# scratch, for the same sharing reason as everything else in this file.
+DEPLOY_LOG_DIR="$PIPELINES_ROOT/logs/deploy"
 mkdir -p "$DEPLOY_LOG_DIR" "$RELEASES_DIR"
 DEPLOY_LOG="$DEPLOY_LOG_DIR/deploy.log"
 

@@ -8,11 +8,13 @@
 # Add this line to ~/.bashrc so every new shell has it automatically, no more
 # re-exporting SIF/RCLONE_CONFIG by hand each time:
 #
-#   source ~/pipelines/current/miniscope/common/env_setup.sh
+#   source $GROUP_HOME/pipelines/current/miniscope/common/env_setup.sh
 #
-# ~/pipelines/current is a symlink maintained by deploy/poll_and_deploy.sh
-# (see the repo root), always pointing at the latest deployed commit -- this
-# line never needs to change even as new versions get deployed underneath it.
+# $GROUP_HOME/pipelines/current is a symlink maintained by
+# deploy/poll_and_deploy.sh (see the repo root), shared across the whole lab
+# and always pointing at the latest deployed commit -- this line never needs
+# to change even as new versions get deployed underneath it, and it's the
+# same for every lab member, not just whoever originally set this up.
 
 # This file lives in miniscope/common/. Resolve sibling directories relative
 # to it so it works no matter where the pipeline root actually lives on disk.
@@ -21,6 +23,16 @@ export CAIMAN_ROOT_DIR="$(cd "$CAIMAN_COMMON_DIR/.." && pwd)"
 export CAIMAN_MC_DIR="$CAIMAN_ROOT_DIR/motion_correction"
 export CAIMAN_CNMFE_DIR="$CAIMAN_ROOT_DIR/cnmfe"
 export CAIMAN_COMMON_DIR
+
+# `run` (the user-facing CLI, see cli/README.md) lives one level up from
+# miniscope/ at the repo root's cli/. Adding it to PATH here means it's
+# deployed and updated the exact same way as everything else -- through the
+# `current` symlink -- with no separate install step.
+CLI_DIR="$(cd "$CAIMAN_ROOT_DIR/../cli" && pwd)"
+case ":$PATH:" in
+  *":$CLI_DIR:"*) ;;  # already on PATH, don't add it twice
+  *) export PATH="$CLI_DIR:$PATH" ;;
+esac
 
 export SIF="${SIF:-$GROUP_SCRATCH/containers/caiman/caiman_v.01.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
