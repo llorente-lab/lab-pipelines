@@ -28,6 +28,27 @@
 
 set -euo pipefail
 
+# `module load` depends on Lmod's init script having been sourced, and that
+# turned out NOT to happen reliably inside a scrontab-launched batch job on
+# Sherlock (confirmed: the job's own $PATH still resolved to the ancient
+# system git, 1.8.3.1, even with the `type module` guard below in place --
+# none of the guessed Lmod init paths matched Sherlock's actual install).
+# Rather than keep guessing, prepend the modern git/python bin/ directories
+# onto PATH directly, unconditionally -- found via:
+#   module load system git && which git && module show git
+#   module load python/3.9.0 && which python3 && module show python/3.9.0
+# python3 is needed here too, not just git: deploy_check.sh runs as a child
+# process of this script (`bash "$check_script"` below) and inherits
+# whatever PATH we set up here, so fixing it once in this one place covers
+# both this script's own git usage and every pipeline's deploy_check.sh.
+GIT_MODULE_BIN="/share/software/user/open/git/2.45.1/bin"
+PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
+[ -d "$GIT_MODULE_BIN" ] && PATH="$GIT_MODULE_BIN:$PATH"
+[ -d "$PYTHON_MODULE_BIN" ] && PATH="$PYTHON_MODULE_BIN:$PATH"
+
+# Still try `module load` too (belt and suspenders, e.g. if the hardcoded
+# path above ever goes stale after a Sherlock software update), but no
+# longer depend on it for correctness.
 if ! type module >/dev/null 2>&1; then
   for lmod_init in /etc/profile.d/lmod.sh /etc/profile.d/z00_lmod.sh \
                    /share/software/lmod/lmod/init/bash; do
@@ -38,9 +59,10 @@ if type module >/dev/null 2>&1; then
   module load system git >/dev/null 2>&1 || true
   module load python/3.9.0 >/dev/null 2>&1 || true
 fi
+
 if ! git worktree -h >/dev/null 2>&1; then
   echo "fatal: git on PATH ($(command -v git), $(git --version)) doesn't support 'git worktree'." >&2
-  echo "fatal: run 'module load system git' in this environment, or hardcode its bin/ dir onto PATH here." >&2
+  echo "fatal: expected a modern git at $GIT_MODULE_BIN -- check it still exists (Sherlock software may have updated) and update GIT_MODULE_BIN above if the version changed." >&2
   exit 1
 fi
 
