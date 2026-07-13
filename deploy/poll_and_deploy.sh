@@ -60,8 +60,17 @@ if type module >/dev/null 2>&1; then
   module load python/3.9.0 >/dev/null 2>&1 || true
 fi
 
-if ! git worktree -h >/dev/null 2>&1; then
-  echo "fatal: git on PATH ($(command -v git), $(git --version)) doesn't support 'git worktree'." >&2
+# Deliberately NOT `git worktree -h` here: by git's own convention, every
+# subcommand's -h/help output exits with status 129, whether or not that
+# subcommand is actually supported -- that misread is exactly what caused
+# the false "doesn't support git worktree" failure the first time this
+# check was written this way, and is also where the mysterious exit-code-129
+# SLURM job failures earlier trace back to. Compare the version number
+# directly instead of relying on any command's exit code.
+GIT_VERSION="$(git --version | awk '{print $3}')"
+MIN_GIT_VERSION="2.20"
+if [ "$(printf '%s\n%s\n' "$MIN_GIT_VERSION" "$GIT_VERSION" | sort -V | head -n1)" != "$MIN_GIT_VERSION" ]; then
+  echo "fatal: git on PATH ($(command -v git), version $GIT_VERSION) is older than $MIN_GIT_VERSION, missing 'git worktree'/'-C' support." >&2
   echo "fatal: expected a modern git at $GIT_MODULE_BIN -- check it still exists (Sherlock software may have updated) and update GIT_MODULE_BIN above if the version changed." >&2
   exit 1
 fi
