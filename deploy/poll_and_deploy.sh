@@ -1,13 +1,13 @@
 #!/bin/bash
-# GitOps-style pull-based deploy agent for Sherlock. Intended to run from a
-# login-node crontab every few minutes:
-#
-#   */5 * * * * /home/users/<you>/pipelines/deploy/poll_and_deploy.sh >> /scratch/users/<you>/logs/deploy/cron.log 2>&1
+# GitOps-style pull-based deploy agent for Sherlock. Intended to run on a
+# schedule via `scrontab` (Slurm's own cron, since plain user crontab is
+# disabled on Sherlock login nodes) -- see deploy/lab-pipelines.scrontab in
+# this same directory for the entry to install with `scrontab -e`.
 #
 # Why pull, not push: Sherlock's login nodes aren't reachable from the
 # internet, so a GitHub webhook has nowhere to deliver to. Instead this
 # script periodically checks whether origin has moved, and if so, deploys.
-# Same idea as Flux/ArgoCD, scaled down to a single cron job for a small lab.
+# Same idea as Flux/ArgoCD, scaled down to a scheduled Slurm job for a small lab.
 #
 # Deploy layout (all under $PIPELINES_ROOT, default ~/pipelines):
 #   _repo/            persistent clone, `git fetch` happens here
@@ -27,6 +27,29 @@
 # promoted, and the next poll will pick up the fix once it's pushed.
 
 set -euo pipefail
+
+# scrontab jobs run in a minimal, non-login environment: no ~/.bashrc, and
+# Sherlock's default `git` on $PATH is an ancient 1.8.3.1 that's missing
+# `git -C` and `git worktree` entirely, both used below. Load a modern git
+# explicitly rather than assuming the invoking shell already has one.
+#
+# `module` is a shell function defined by Lmod's init script, not a binary,
+# so it may not exist yet in a non-login shell even though Lmod itself is
+# installed -- source its init script first if needed.
+if ! type module >/dev/null 2>&1; then
+  for lmod_init in /etc/profile.d/lmod.sh /etc/profile.d/z00_lmod.sh \
+                   /share/software/lmod/lmod/init/bash; do
+    [ -f "$lmod_init" ] && source "$lmod_init" && break
+  done
+fi
+if type module >/dev/null 2>&1; then
+  module load system git >/dev/null 2>&1 || true
+fi
+if ! git worktree -h >/dev/null 2>&1; then
+  echo "fatal: git on PATH ($(command -v git), $(git --version)) doesn't support 'git worktree'." >&2
+  echo "fatal: run 'module load system git' in this environment, or hardcode its bin/ dir onto PATH here." >&2
+  exit 1
+fi
 
 # --- configuration -----------------------------------------------------------
 

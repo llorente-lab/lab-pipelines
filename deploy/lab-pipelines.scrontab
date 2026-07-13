@@ -1,0 +1,19 @@
+# Slurm crontab entry for the GitOps deploy agent. Install with:
+#
+#   scrontab -e
+#
+# then paste the #SCRON block below (adjust the log path's username first).
+# List installed entries with `scrontab -l`.
+#
+# Runs every 5 minutes on Sherlock's own scheduler instead of a real crontab
+# (disabled for users on login nodes) -- see poll_and_deploy.sh for what
+# actually happens each run: fetch, deploy if origin moved, otherwise a
+# near-instant no-op.
+
+#SCRON --job-name=lab_pipelines_deploy
+#SCRON --partition=normal
+#SCRON --time=00:02:00
+#SCRON --cpus-per-task=1
+#SCRON --mem=1G
+#SCRON --output=/scratch/users/atharvp8/logs/deploy/scrontab_%j.out
+*/5 * * * * /home/users/atharvp8/pipelines/deploy/poll_and_deploy.sh
