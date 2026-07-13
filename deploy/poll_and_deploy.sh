@@ -28,14 +28,6 @@
 
 set -euo pipefail
 
-# scrontab jobs run in a minimal, non-login environment: no ~/.bashrc, and
-# Sherlock's default `git` on $PATH is an ancient 1.8.3.1 that's missing
-# `git -C` and `git worktree` entirely, both used below. Load a modern git
-# explicitly rather than assuming the invoking shell already has one.
-#
-# `module` is a shell function defined by Lmod's init script, not a binary,
-# so it may not exist yet in a non-login shell even though Lmod itself is
-# installed -- source its init script first if needed.
 if ! type module >/dev/null 2>&1; then
   for lmod_init in /etc/profile.d/lmod.sh /etc/profile.d/z00_lmod.sh \
                    /share/software/lmod/lmod/init/bash; do
@@ -44,6 +36,7 @@ if ! type module >/dev/null 2>&1; then
 fi
 if type module >/dev/null 2>&1; then
   module load system git >/dev/null 2>&1 || true
+  module load python/3.9.0 >/dev/null 2>&1 || true
 fi
 if ! git worktree -h >/dev/null 2>&1; then
   echo "fatal: git on PATH ($(command -v git), $(git --version)) doesn't support 'git worktree'." >&2
