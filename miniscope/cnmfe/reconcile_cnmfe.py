@@ -35,7 +35,7 @@ from reconcile_common import (
     find_local_mmap,
     find_local_zip,
     get_scratch_analyzed_base,
-    is_joblib,
+    is_cnmfe_model,
     is_roi_zip,
     iter_eligible_sessions,
     marker_found,
@@ -51,7 +51,7 @@ def find_zip_anywhere(analyzed_base: str, mouse: str, date: str, tp: str, zip_di
 def reconcile(verbose: bool = False):
     analyzed_base = get_scratch_analyzed_base()
 
-    joblib_dirs = collect_marker_dirs(ANALYZED_DONE_PATHS, is_joblib)
+    model_dirs = collect_marker_dirs(ANALYZED_DONE_PATHS, is_cnmfe_model)
     zip_dirs = collect_marker_dirs(ANALYZED_DONE_PATHS, is_roi_zip)
 
     ready_for_cnmfe = []
@@ -59,9 +59,9 @@ def reconcile(verbose: bool = False):
     waiting_on_roi = []
 
     for mouse, date, tp in iter_eligible_sessions(verbose=verbose):
-        if marker_found(mouse, date, tp, joblib_dirs):
+        if marker_found(mouse, date, tp, model_dirs):
             if verbose:
-                print(f"done  {mouse}/{date}/{tp}: joblib already exists")
+                print(f"done  {mouse}/{date}/{tp}: CNMF-E model already exists (.joblib/.hdf5/.p)")
             continue
 
         if not find_zip_anywhere(analyzed_base, mouse, date, tp, zip_dirs):

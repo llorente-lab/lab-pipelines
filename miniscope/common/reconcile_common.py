@@ -196,11 +196,24 @@ def collect_marker_dirs(base_paths: list[str], filename_matches) -> set[str]:
 
 
 def is_correlation_image(fname: str) -> bool:
-    return fname.lower().endswith(".npy") and "correlation_image" in fname.lower()
+    # The current pipeline always saves a bare correlation_image.npy, but
+    # some archival sessions (processed by an older/different script before
+    # this rewrite) only ever synced the PNG visualization, never the .npy
+    # itself. A PNG named correlation_image_... is just as strong evidence
+    # that MC actually ran as the .npy is, so both count.
+    name = fname.lower()
+    return "correlation_image" in name and (name.endswith(".npy") or name.endswith(".png"))
 
 
-def is_joblib(fname: str) -> bool:
-    return fname.lower().endswith(".joblib")
+def is_cnmfe_model(fname: str) -> bool:
+    # The current pipeline saves both a .joblib and a .hdf5 for every run
+    # (see cnmfe_modeling.py's run_cnmfe), but some archival sessions only
+    # have the .hdf5 (or, older still, a plain pickle .p) with no .joblib
+    # at all. Any one of these is solid evidence CNMF-E actually completed
+    # for that session -- don't require the specific file the current
+    # pipeline happens to prefer.
+    name = fname.lower()
+    return name.endswith(".joblib") or name.endswith(".hdf5") or name.endswith(".p")
 
 
 def is_roi_zip(fname: str) -> bool:

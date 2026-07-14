@@ -24,3 +24,4 @@ PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
 [ -d "$PYTHON_MODULE_BIN" ] && PATH="$PYTHON_MODULE_BIN:$PATH"
 
 python3 tests/test_reconcile_common.py
+python3 tests/test_reconcile_motion_correction.py

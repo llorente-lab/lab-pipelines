@@ -114,6 +114,45 @@ class TestMarkerDirs(unittest.TestCase):
         self.assertFalse(rc.marker_found("VK_20250101_a", "2025-01-02", "tp1", marker_dirs))
 
 
+class TestIsCorrelationImage(unittest.TestCase):
+    """Archival sessions processed by an older script (before this rewrite)
+    sometimes only synced the PNG visualization, never the bare .npy the
+    current pipeline always saves -- both must count as done, or
+    reconciliation wrongly re-queues an already-finished session for MC."""
+
+    def test_matches_bare_npy(self):
+        self.assertTrue(rc.is_correlation_image("correlation_image.npy"))
+
+    def test_matches_suffixed_npy(self):
+        self.assertTrue(rc.is_correlation_image("correlation_image_VK_20250101_a_tp1.npy"))
+
+    def test_matches_png_variant(self):
+        self.assertTrue(rc.is_correlation_image("correlation_image_VK_20250701_d_tp2-bsl2.png"))
+
+    def test_rejects_unrelated_file(self):
+        self.assertFalse(rc.is_correlation_image("some_other_file.txt"))
+        self.assertFalse(rc.is_correlation_image("background_spatial.npy"))
+
+
+class TestIsCnmfeModel(unittest.TestCase):
+    """The current pipeline always saves both .joblib and .hdf5, but some
+    archival sessions only have one or the other (or an even older .p
+    pickle) -- any of these is solid evidence CNMF-E actually ran."""
+
+    def test_matches_joblib(self):
+        self.assertTrue(rc.is_cnmfe_model("cnmfe_model_seeded_VK_20250101_a_2025-01-01.joblib"))
+
+    def test_matches_hdf5(self):
+        self.assertTrue(rc.is_cnmfe_model("cnmfe_results_VK_20250101_a_2025-01-01.hdf5"))
+
+    def test_matches_pickle(self):
+        self.assertTrue(rc.is_cnmfe_model("cnmfe_model_VK_20250101_a_2025-01-01.p"))
+
+    def test_rejects_unrelated_file(self):
+        self.assertFalse(rc.is_cnmfe_model("cnmfe_traces_VK_20250101_a_2025-01-01.csv"))
+        self.assertFalse(rc.is_cnmfe_model("cnmfe_contours_VK_20250101_a_2025-01-01.png"))
+
+
 class TestScratchLookups(unittest.TestCase):
     """find_local_mmap / find_local_zip touch the real filesystem (that's the
     point -- scratch state can't be mocked away), so these use a temp dir."""
