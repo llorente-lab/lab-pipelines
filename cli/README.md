@@ -1,10 +1,21 @@
 # cli/
 
 The execution + monitoring layer. `run` is the one command a lab member
-needs to run pipelines, check on them, and find their logs -- no `cd`-ing
-into the deployed tree, no remembering `sbatch` argument order or log paths.
+needs to run pipelines, check on them, find their logs, and move data
+between Drive and scratch -- no `cd`-ing into the deployed tree, no
+remembering `sbatch` argument order, log paths, or raw `rclone` invocations.
 `setup.sh` is the one-time (safely re-runnable) bootstrap for a new lab
 member's shell.
+
+`run sync <src> <dst> [rclone flags...]` deserves a specific callout: it's a
+deliberately thin, unopinionated wrapper around `rclone copy` (via
+`apptainer_rclone`, since plain `rclone` isn't on Sherlock's compute node
+`$PATH`). No default excludes, no assumed direction -- either path can be a
+`gdrive:` remote or a local scratch path, same as `cp`. This is different
+from `sync.sh` (used internally after every MC/CNMF-E run), which bakes in
+`--exclude '*.mmap' --exclude '*.avi'` because that specific automatic case
+always wants them; `run sync` is the general-purpose escape hatch for
+everything else, so the safety net is opt-in per call, not forced on you.
 
 ## Why this is a separate top-level directory
 

@@ -26,12 +26,23 @@ Usage:
   run miniscope master
   run status
   run logs miniscope <stage> --mouse M --date D --tp T
+  run sync <src> <dst> [rclone flags...]
   run list
 
 Granularity for motion-correction/cnmfe (matches the underlying .sbatch):
   no flags               full sweep, reconciliation-driven
   --mouse M              everything reconciliation finds for that mouse
   --mouse M --date D --tp T   exactly one session, runs directly
+
+`run sync` is a thin, unopinionated wrapper around `rclone copy` -- no
+default excludes, no baked-in direction, just whichever two paths you give
+it (either can be a gdrive: remote path or a local scratch path). Anything
+after the two paths is passed straight through to rclone, e.g.:
+  run sync gdrive:Miniscope/AnalyzedData/VK_.../2025-01-01/tp1 \
+           $SCRATCH/Miniscope/AnalyzedData/VK_.../2025-01-01/tp1
+  run sync $SCRATCH/Miniscope/AnalyzedData/VK_.../2025-01-01/tp1 \
+           gdrive:Miniscope/AnalyzedData/VK_.../2025-01-01/tp1 \
+           --exclude '*.mmap' --exclude '*.avi'
 
 Examples:
   run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
@@ -148,6 +159,23 @@ cmd_logs() {
   tail -F "$latest"
 }
 
+cmd_sync() {
+  # Deliberately raw: no default --exclude, no assumed direction. sync.sh
+  # (used internally after every MC/CNMF-E run) still bakes in the
+  # mmap/avi excludes that make sense for that specific, automatic case --
+  # this command is the general-purpose escape hatch for everything else,
+  # so the safety net is opt-in per call (pass --exclude yourself) rather
+  # than baked in. Goes through apptainer_rclone since plain `rclone` isn't
+  # on Sherlock's compute node PATH.
+  local src="${1-}" dst="${2-}"
+  if [ -z "$src" ] || [ -z "$dst" ]; then
+    echo "run sync: usage: run sync <src> <dst> [rclone flags...]" >&2
+    exit 1
+  fi
+  shift 2
+  apptainer_rclone copy "$src" "$dst" --progress "$@"
+}
+
 cmd_list() {
   cat <<'EOF'
 Pipelines and stages currently wired up:
@@ -156,6 +184,8 @@ miniscope
   motion-correction   run miniscope motion-correction [--mouse M [--date D --tp T]]
   cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]]
   master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E)
+
+other commands: status, logs, sync, list -- run 'run --help' for details
 EOF
 }
 
@@ -165,6 +195,7 @@ case "${1-}" in
   miniscope) shift; cmd_miniscope "$@" ;;
   status)    shift; cmd_status "$@" ;;
   logs)      shift; cmd_logs "$@" ;;
+  sync)      shift; cmd_sync "$@" ;;
   list)      shift; cmd_list "$@" ;;
   -h|--help|"") usage ;;
   *) echo "run: unknown command '$1'" >&2; usage; exit 1 ;;
