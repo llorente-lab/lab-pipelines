@@ -21,8 +21,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "cnmfe"))
+import cnmfe_modeling
 from cnmfe_modeling import resolve_analyzed_path
 
 
@@ -82,6 +84,66 @@ class TestResolveAnalyzedPath(unittest.TestCase):
     def test_raises_when_neither_path_exists_at_all(self):
         with self.assertRaises(FileNotFoundError):
             resolve_analyzed_path(str(self.tmp), "VK_nonexistent", "2025-01-01", "tp1")
+
+
+class TestAutoSyncRoiZip(unittest.TestCase):
+    """resolve_analyzed_path() should pull a Drive-only ROI zip down
+    automatically when it's the *only* thing missing locally, per the
+    "run sync" design discussion -- mmap and correlation image still have
+    to already be local, only the zip gets this treatment."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_syncs_zip_when_its_the_only_thing_missing(self):
+        tp_dir = self.tmp / "VK_20250101_a" / "2025-01-01" / "tp1"
+        tp_dir.mkdir(parents=True)
+        (tp_dir / "memmap_d1_order_c_frames.mmap").touch()
+        (tp_dir / "correlation_image.npy").touch()
+        # deliberately no .zip -- that's the one thing this candidate lacks
+
+        def fake_sync(remote_dir, local_dir):
+            # Simulate what a real `rclone copy --include '*.zip'` would do
+            (local_dir / "RoiSet.zip").touch()
+
+        with mock.patch.object(cnmfe_modeling, "find_roi_zip_on_drive", return_value="gdrive:fake/remote/dir") as mock_find, \
+             mock.patch.object(cnmfe_modeling, "sync_roi_zip_from_drive", side_effect=fake_sync) as mock_sync:
+            resolved, found = resolve_analyzed_path(str(self.tmp), "VK_20250101_a", "2025-01-01", "tp1")
+
+        mock_find.assert_called_once_with("VK_20250101_a", "2025-01-01", "tp1")
+        mock_sync.assert_called_once()
+        self.assertEqual(resolved, tp_dir)
+        self.assertEqual(set(found.keys()), {"mmap", "roi", "correlation"})
+
+    def test_does_not_attempt_sync_when_other_files_also_missing(self):
+        # mmap AND roi both missing -- pulling the zip alone wouldn't make
+        # this candidate usable anyway (the mmap can never come from Drive),
+        # so it shouldn't even try.
+        tp_dir = self.tmp / "VK_20250101_a" / "2025-01-01" / "tp1"
+        tp_dir.mkdir(parents=True)
+        (tp_dir / "correlation_image.npy").touch()
+
+        with mock.patch.object(cnmfe_modeling, "find_roi_zip_on_drive") as mock_find:
+            with self.assertRaises(FileNotFoundError):
+                resolve_analyzed_path(str(self.tmp), "VK_20250101_a", "2025-01-01", "tp1")
+
+        mock_find.assert_not_called()
+
+    def test_raises_cleanly_when_zip_not_on_drive_either(self):
+        tp_dir = self.tmp / "VK_20250101_a" / "2025-01-01" / "tp1"
+        tp_dir.mkdir(parents=True)
+        (tp_dir / "memmap_d1_order_c_frames.mmap").touch()
+        (tp_dir / "correlation_image.npy").touch()
+
+        with mock.patch.object(cnmfe_modeling, "find_roi_zip_on_drive", return_value=None), \
+             mock.patch.object(cnmfe_modeling, "sync_roi_zip_from_drive") as mock_sync:
+            with self.assertRaises(FileNotFoundError):
+                resolve_analyzed_path(str(self.tmp), "VK_20250101_a", "2025-01-01", "tp1")
+
+        mock_sync.assert_not_called()
 
 
 if __name__ == "__main__":

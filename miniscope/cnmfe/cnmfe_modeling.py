@@ -37,6 +37,7 @@ import numpy as np
 import os
 from pathlib import Path
 import psutil
+import subprocess
 import sys
 import gc
 import time
@@ -50,6 +51,10 @@ import caiman as cm
 from caiman.source_extraction import cnmf
 from caiman.source_extraction.cnmf import params as params
 from caiman.utils.visualization import plot_contours
+
+# reconcile_common.py lives in ../common relative to this file
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
+from reconcile_common import ANALYZED_DONE_PATHS, is_roi_zip, rclone_list_files, session_dir_variants
 
 try:
     cv2.setNumThreads(0)
@@ -118,6 +123,50 @@ def check_required_files(candidate_path: Path) -> dict:
     return found
 
 
+def find_roi_zip_on_drive(mouse: str, date: str, tp: str) -> str | None:
+    """
+    Search Drive (canonical + both archival AnalyzedData locations) for an
+    ROI .zip belonging to this session, checking both the tp-level and
+    mouse/date-level directory conventions at each location -- same set of
+    locations and depths reconciliation itself checks, via the same
+    ANALYZED_DONE_PATHS/session_dir_variants reconcile_common.py already
+    defines, so this can't drift out of sync with what reconciliation
+    considers a valid ROI location.
+
+    Each check is scoped to one specific candidate directory (not a full
+    recursive listing of all of AnalyzedData), so this stays fast regardless
+    of how large the Drive tree is overall. Returns the remote directory
+    containing the zip, or None if it isn't on Drive anywhere either.
+    """
+    for base in ANALYZED_DONE_PATHS:
+        for variant in session_dir_variants(mouse, date, tp):
+            remote_dir = f"{base}/{variant}"
+            files = rclone_list_files(remote_dir)
+            if any(is_roi_zip(f) for f in files):
+                return remote_dir
+    return None
+
+
+def sync_roi_zip_from_drive(remote_dir: str, local_dir: Path) -> None:
+    """
+    Pull just the ROI zip (not the whole remote directory) from Drive down
+    to local_dir. Same "check local, sync if missing" shape as
+    motion_correct.py's run_sync_if_needed() for RawData, applied to the one
+    file CNMF-E actually needs here rather than the mmap (which never syncs
+    to Drive at all) or the correlation image (already required to be local
+    for np.load, checked separately).
+    """
+    local_dir.mkdir(parents=True, exist_ok=True)
+    print(f"SYNC - ROI zip found on Drive at {remote_dir}, pulling to {local_dir}")
+    cmd = ["rclone", "copy", "--include", "*.zip", remote_dir, str(local_dir)]
+    try:
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
+        print("SYNC - completed")
+    except subprocess.CalledProcessError as e:
+        print(f"SYNC ERROR - rclone failed with exit code {e.returncode}")
+        print(e.stderr.strip())
+
+
 def resolve_analyzed_path(analyzed_base: str, mouse: str, date: str, tp: str) -> tuple[Path, dict]:
     """
     Find the AnalyzedData directory that actually has everything CNMF-E needs.
@@ -126,6 +175,14 @@ def resolve_analyzed_path(analyzed_base: str, mouse: str, date: str, tp: str) ->
     sessions predating the tp-level layout). Raises FileNotFoundError with a
     message naming both candidate paths and exactly what was missing at each,
     if neither is complete.
+
+    If a candidate is only missing the ROI zip specifically, this checks
+    Drive for one (canonical + archival, same locations reconciliation
+    checks) and pulls it down automatically before giving up on that
+    candidate -- the mmap and correlation image still have to already be
+    local (the mmap never syncs to Drive at all; the correlation image is
+    required to already be local for np.load), only the zip gets this
+    auto-sync treatment.
     """
     candidates = [
         Path(analyzed_base) / mouse / date / tp,
@@ -138,6 +195,14 @@ def resolve_analyzed_path(analyzed_base: str, mouse: str, date: str, tp: str) ->
     for candidate in candidates:
         found = check_required_files(candidate)
         missing = required - found.keys()
+
+        if missing == {'roi'}:
+            remote_dir = find_roi_zip_on_drive(mouse, date, tp)
+            if remote_dir:
+                sync_roi_zip_from_drive(remote_dir, candidate)
+                found = check_required_files(candidate)
+                missing = required - found.keys()
+
         attempts.append((candidate, missing))
         if not missing:
             print(f"Using AnalyzedData path: {candidate}")
@@ -145,7 +210,8 @@ def resolve_analyzed_path(analyzed_base: str, mouse: str, date: str, tp: str) ->
                 print(f"  found {key}: {path.name}")
             return candidate, found
 
-    # Neither candidate had everything: build a precise error message
+    # Neither candidate had everything, even after attempting to sync a
+    # Drive-only ROI zip down: build a precise error message
     lines = ["Unable to find all required files for CNMF-E at either candidate path:"]
     for candidate, missing in attempts:
         exists = "exists" if candidate.exists() else "does not exist"
