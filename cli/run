@@ -27,12 +27,18 @@ Usage:
   run status
   run logs miniscope <stage> --mouse M --date D --tp T
   run sync <src> <dst> [rclone flags...]
+  run queue miniscope [--mouse M]
   run list
 
 Granularity for motion-correction/cnmfe (matches the underlying .sbatch):
   no flags               full sweep, reconciliation-driven
   --mouse M              everything reconciliation finds for that mouse
   --mouse M --date D --tp T   exactly one session, runs directly
+
+`run queue miniscope` is a dry run -- shows exactly which sessions
+reconciliation currently thinks need motion correction or are ready for
+CNMF-E, without submitting anything. Same underlying check
+master_pipeline.sbatch itself uses before it runs anything for real.
 
 `run sync` is a thin, unopinionated wrapper around `rclone copy` -- no
 default excludes, no baked-in direction, just whichever two paths you give
@@ -176,6 +182,38 @@ cmd_sync() {
   apptainer_rclone copy "$src" "$dst" --progress "$@"
 }
 
+cmd_queue() {
+  # Dry run: shows exactly what reconciliation currently thinks needs
+  # doing, without submitting anything. Reuses the same mc_queue()/
+  # cnmfe_queue() functions master_pipeline.sbatch itself calls before
+  # actually running anything, so this is guaranteed to show the real
+  # queue, not a separate reimplementation that could drift from it.
+  local pipeline="${1-}"; shift || true
+  if [ "$pipeline" != "miniscope" ]; then
+    echo "run queue: only 'miniscope' is supported right now" >&2
+    exit 1
+  fi
+  parse_session_flags "$@"
+  if [ -n "$DATE" ] || [ -n "$TP" ]; then
+    echo "run queue: only --mouse is supported as a filter (not --date/--tp)" >&2
+    exit 1
+  fi
+
+  # shellcheck disable=SC1091
+  source "$CAIMAN_COMMON_DIR/pipeline_common.sh"
+
+  echo "sessions needing motion correction:"
+  local mc_result
+  mc_result="$(mc_queue "$MOUSE")"
+  if [ -n "$mc_result" ]; then echo "$mc_result"; else echo "  (none)"; fi
+
+  echo ""
+  echo "sessions ready for CNMF-E:"
+  local cnmfe_result
+  cnmfe_result="$(cnmfe_queue "$MOUSE")"
+  if [ -n "$cnmfe_result" ]; then echo "$cnmfe_result"; else echo "  (none)"; fi
+}
+
 cmd_list() {
   cat <<'EOF'
 Pipelines and stages currently wired up:
@@ -185,7 +223,7 @@ miniscope
   cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]]
   master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E)
 
-other commands: status, logs, sync, list -- run 'run --help' for details
+other commands: status, logs, sync, queue, list -- run 'run --help' for details
 EOF
 }
 
@@ -196,6 +234,7 @@ case "${1-}" in
   status)    shift; cmd_status "$@" ;;
   logs)      shift; cmd_logs "$@" ;;
   sync)      shift; cmd_sync "$@" ;;
+  queue)     shift; cmd_queue "$@" ;;
   list)      shift; cmd_list "$@" ;;
   -h|--help|"") usage ;;
   *) echo "run: unknown command '$1'" >&2; usage; exit 1 ;;
