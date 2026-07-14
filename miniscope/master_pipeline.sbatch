@@ -39,6 +39,9 @@ MC_SESSIONS_FILE="$LOG_DIR/master_mc_sessions_${SLURM_JOB_ID}.txt"
 mc_queue > "$MC_SESSIONS_FILE"
 MC_COUNT=$(grep -c . "$MC_SESSIONS_FILE" || true)
 echo "sessions needing MC: $MC_COUNT"
+if [ "$MC_COUNT" -gt 0 ]; then
+  cat "$MC_SESSIONS_FILE"
+fi
 
 MC_FAILURES=0
 if [ "$MC_COUNT" -gt 0 ]; then
@@ -88,6 +91,9 @@ CNMFE_SESSIONS_FILE="$LOG_DIR/master_cnmfe_sessions_${SLURM_JOB_ID}.txt"
 cnmfe_queue > "$CNMFE_SESSIONS_FILE"
 CNMFE_COUNT=$(grep -c . "$CNMFE_SESSIONS_FILE" || true)
 echo "sessions ready for CNMF-E: $CNMFE_COUNT"
+if [ "$CNMFE_COUNT" -gt 0 ]; then
+  cat "$CNMFE_SESSIONS_FILE"
+fi
 
 CNMFE_FAILURES=0
 if [ "$CNMFE_COUNT" -gt 0 ]; then
