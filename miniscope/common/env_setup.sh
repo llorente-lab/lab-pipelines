@@ -37,6 +37,26 @@ esac
 export SIF="${SIF:-$GROUP_SCRATCH/containers/caiman/caiman_v.01.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
+# Where RawData/AnalyzedData actually get staged during a run. Defaults to
+# $GROUP_SCRATCH, not personal $SCRATCH: reconciliation (reconcile_common.py)
+# checks scratch for state Drive can't represent (mmap presence, zip
+# presence-on-scratch), and that check is only meaningful lab-wide if
+# everyone's jobs are staging into the SAME scratch. With personal-scratch
+# defaults, two lab members could independently pull and motion-correct the
+# same session into their own separate scratch, invisible to each other's
+# reconciliation -- duplicated compute and duplicated storage, defeating the
+# point of reconciliation. Override to "personal" for genuinely exploratory/
+# private work (the tests/_pipeline_test sandbox, a manual reprocess you want
+# to inspect before it's official) where that shared-visibility isn't wanted.
+export MINISCOPE_STORAGE_TIER="${MINISCOPE_STORAGE_TIER:-group}"
+if [ "$MINISCOPE_STORAGE_TIER" = "group" ]; then
+  export MINISCOPE_RAW_BASE="${MINISCOPE_RAW_BASE:-$GROUP_SCRATCH/Miniscope/RawData}"
+  export MINISCOPE_ANALYZED_BASE="${MINISCOPE_ANALYZED_BASE:-$GROUP_SCRATCH/Miniscope/AnalyzedData}"
+else
+  export MINISCOPE_RAW_BASE="${MINISCOPE_RAW_BASE:-$SCRATCH/Miniscope/RawData}"
+  export MINISCOPE_ANALYZED_BASE="${MINISCOPE_ANALYZED_BASE:-$SCRATCH/Miniscope/AnalyzedData}"
+fi
+
 # One global, organized place for every SLURM .out/.err file, regardless of
 # where `sbatch` happens to be run from. %x is the job name, %j the job ID,
 # so each stage's job logs land in their own subfolder:
@@ -79,4 +99,4 @@ apptainer_rclone() {
 # Quick jump to the scripts root.
 alias caiman_cd='cd "$CAIMAN_ROOT_DIR"'
 
-echo "caiman env loaded: SIF=$SIF, RCLONE_CONFIG=$RCLONE_CONFIG" >&2
+echo "caiman env loaded: SIF=$SIF, RCLONE_CONFIG=$RCLONE_CONFIG, storage_tier=$MINISCOPE_STORAGE_TIER ($MINISCOPE_ANALYZED_BASE)" >&2
