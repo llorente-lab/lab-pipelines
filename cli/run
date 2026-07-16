@@ -24,11 +24,34 @@ Usage:
   run miniscope motion-correction [--mouse M [--date D --tp T]]
   run miniscope cnmfe             [--mouse M [--date D --tp T]]
   run miniscope master
+  run moseq init <project_name> --source <gdrive_path>
+  run moseq pull <project_name>
+  run moseq projects
   run status
   run logs miniscope <stage> --mouse M --date D --tp T
   run sync <src> <dst> [rclone flags...]
   run queue miniscope [--mouse M]
   run list
+
+`run moseq init <name> --source <gdrive_path>` creates
+$MOSEQ_PROJECTS_BASE/<name> (canonical home for every lab member's Moseq
+projects, see moseq/common/env_setup.sh), does one explicit pull from
+<gdrive_path> into it, and records name/Sherlock path/Drive source in
+$MOSEQ_PROJECTS_BASE/<name>/project_meta.yaml. <gdrive_path> can be any
+rclone remote path, not just something under the default
+gdrive:Moseq/<name> convention (--source defaults to that if omitted).
+Project names must be unique (enforced by directory existence) and this is
+a deliberately manual step, not something extraction jobs do automatically
+-- unlike Miniscope, syncing only happens when you ask.
+
+`run moseq pull <name>` re-syncs later (e.g. after adding new sessions on
+Drive), reading the original --source back out of that project's own
+project_meta.yaml so you don't have to remember/retype it.
+
+`run moseq projects` lists every known project (name, Sherlock path, Drive
+source) by scanning $MOSEQ_PROJECTS_BASE/*/project_meta.yaml -- each
+project is self-describing, there's no separate central registry file to
+keep in sync or race against.
 
 Granularity for motion-correction/cnmfe (matches the underlying .sbatch):
   no flags               full sweep, reconciliation-driven
@@ -122,6 +145,134 @@ cmd_miniscope() {
       ;;
     *)
       echo "run: unknown miniscope stage '$stage'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+moseq_project_dir() {
+  echo "$MOSEQ_PROJECTS_BASE/$1"
+}
+
+# Project names become directory names and get embedded in a yaml file, so
+# keep them boring: letters, digits, underscore, hyphen only. Rejects
+# anything that could break path handling or look like a yaml value needing
+# escaping (spaces, colons, quotes, slashes).
+moseq_validate_name() {
+  case "$1" in
+    ""|*[!A-Za-z0-9_-]*)
+      echo "run moseq: invalid project name '$1' -- use only letters, digits, underscore, hyphen" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# Reads one "field: value" line out of a project_meta.yaml. Deliberately
+# not a real yaml parser -- project_meta.yaml is only ever written by
+# moseq_write_meta below with known-simple values (validated project names,
+# absolute paths, rclone remote paths), so a grep/sed line match is enough
+# and avoids needing a yaml library on the host (system python here is old
+# and doesn't ship pyyaml).
+moseq_read_meta_field() {
+  local file="$1" field="$2"
+  grep "^${field}:" "$file" 2>/dev/null | head -n1 | sed "s/^${field}: *//"
+}
+
+moseq_write_meta() {
+  local project_dir="$1" name="$2" source="$3"
+  cat > "$project_dir/project_meta.yaml" <<EOF
+name: $name
+sherlock_path: $project_dir
+gdrive_source: $source
+created: $(date -Is)
+EOF
+}
+
+cmd_moseq() {
+  if [ -z "${MOSEQ_PROJECTS_BASE-}" ]; then
+    echo "run moseq: environment not set up -- have you sourced moseq/common/env_setup.sh? (see cli/setup.sh)" >&2
+    exit 1
+  fi
+  local stage="${1-}"; shift || true
+  case "$stage" in
+    init)
+      local name="${1-}"; shift || true
+      moseq_validate_name "$name"
+      local source=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --source) source="$2"; shift 2 ;;
+          *) echo "run moseq init: unrecognized argument '$1'" >&2; exit 1 ;;
+        esac
+      done
+      source="${source:-$MOSEQ_DRIVE_BASE/$name}"
+
+      local project_dir
+      project_dir="$(moseq_project_dir "$name")"
+      if [ -d "$project_dir" ]; then
+        echo "run moseq init: $project_dir already exists -- project names must be unique. Use 'run moseq pull $name' to re-sync an existing project." >&2
+        exit 1
+      fi
+
+      mkdir -p "$project_dir"
+      echo "run moseq init: created $project_dir"
+      echo "run moseq init: pulling $source -> $project_dir"
+      apptainer_rclone copy "$source" "$project_dir" --progress
+      moseq_write_meta "$project_dir" "$name" "$source"
+      echo "run moseq init: done, recorded project_meta.yaml (name=$name, source=$source)"
+      echo "run moseq init: next steps:"
+      echo "  - open the project notebook via Sherlock OnDemand (kernel: MoSeq2 (Apptainer))"
+      echo "  - or check status any time: run moseq queue --project $name"
+      ;;
+    pull)
+      local name="${1-}"
+      moseq_validate_name "$name"
+      local project_dir
+      project_dir="$(moseq_project_dir "$name")"
+      if [ ! -d "$project_dir" ]; then
+        echo "run moseq pull: $project_dir doesn't exist yet -- did you mean 'run moseq init $name --source <gdrive_path>'?" >&2
+        exit 1
+      fi
+      local meta_file="$project_dir/project_meta.yaml"
+      if [ ! -f "$meta_file" ]; then
+        echo "run moseq pull: no project_meta.yaml found in $project_dir -- can't recover the original --source. Was this project created by 'run moseq init'?" >&2
+        exit 1
+      fi
+      local source
+      source="$(moseq_read_meta_field "$meta_file" "gdrive_source")"
+      if [ -z "$source" ]; then
+        echo "run moseq pull: project_meta.yaml exists but has no gdrive_source field ($meta_file)" >&2
+        exit 1
+      fi
+      echo "run moseq pull: syncing $source -> $project_dir (new/changed files only, rclone copy is non-destructive)"
+      apptainer_rclone copy "$source" "$project_dir" --progress
+      ;;
+    projects)
+      local found=0
+      local meta_file
+      for meta_file in "$MOSEQ_PROJECTS_BASE"/*/project_meta.yaml; do
+        [ -e "$meta_file" ] || continue
+        found=1
+        local p_name p_path p_source p_created
+        p_name="$(moseq_read_meta_field "$meta_file" "name")"
+        p_path="$(moseq_read_meta_field "$meta_file" "sherlock_path")"
+        p_source="$(moseq_read_meta_field "$meta_file" "gdrive_source")"
+        p_created="$(moseq_read_meta_field "$meta_file" "created")"
+        echo "$p_name"
+        echo "  path:    $p_path"
+        echo "  source:  $p_source"
+        echo "  created: $p_created"
+      done
+      if [ "$found" -eq 0 ]; then
+        echo "no moseq projects found under $MOSEQ_PROJECTS_BASE yet -- try 'run moseq init <name> --source <gdrive_path>'"
+      fi
+      ;;
+    "")
+      echo "run: missing moseq stage -- try 'init', 'pull', or 'projects' (more stages coming, see cli/README.md)" >&2
+      exit 1
+      ;;
+    *)
+      echo "run: unknown moseq stage '$stage'" >&2
       exit 1
       ;;
   esac
@@ -231,6 +382,7 @@ EOF
 
 case "${1-}" in
   miniscope) shift; cmd_miniscope "$@" ;;
+  moseq)     shift; cmd_moseq "$@" ;;
   status)    shift; cmd_status "$@" ;;
   logs)      shift; cmd_logs "$@" ;;
   sync)      shift; cmd_sync "$@" ;;

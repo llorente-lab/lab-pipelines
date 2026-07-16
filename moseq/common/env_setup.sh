@@ -7,13 +7,29 @@
 #
 #   source $GROUP_HOME/pipelines/current/moseq/common/env_setup.sh
 #
-# Unlike Miniscope, Moseq project roots are arbitrary user-chosen
-# directories (moseq2 expects the notebook/config/index files to live as
-# siblings of the session video folders, wherever those happen to be), not
-# one canonical path under $GROUP_SCRATCH. So this file does NOT set a
-# MOSEQ_RAW_BASE/MOSEQ_ANALYZED_BASE the way env_setup.sh does for
-# Miniscope -- every `run moseq` command instead takes an explicit
-# --project <path> (or infers from cwd).
+# Moseq projects still need one canonical home, same reasoning as
+# Miniscope's shared-scratch-for-reconciliation argument: everyone's jobs
+# need to see the same on-disk state for `run moseq queue`/reconciliation
+# to mean anything. moseq2 itself only requires that a project's session
+# folders/config.yaml/aggregate_results/_pca/models all live as siblings
+# under one base_dir -- it doesn't care WHERE that base_dir is. So
+# $MOSEQ_PROJECTS_BASE/<project_name>/ IS that base_dir, one canonical
+# per-project directory, no separate RawData/AnalyzedData split (unlike
+# Miniscope): a Moseq project isn't "raw data that gets transformed
+# in place then published elsewhere," it's one working tree that
+# accumulates config/PCA/model outputs alongside the raw sessions as the
+# pipeline progresses, so splitting raw from working would just add a
+# copy/symlink step moseq2 doesn't need.
+#
+# Getting data INTO $MOSEQ_PROJECTS_BASE/<project_name>/ from Drive is a
+# deliberately manual step (`run moseq init <name>` does one explicit pull
+# at project setup; `run sync` for pulling in newly added sessions later),
+# not an automatic per-job pull like Miniscope's motion_correct.py does.
+# Decided this way on purpose: unlike Miniscope's fixed RawData/AnalyzedData
+# convention, Moseq's Drive-side layout for a given lab member's project
+# may not be as uniform, and extraction jobs silently reaching out to Drive
+# mid-run adds a failure mode (Drive auth, network, race with an in-flight
+# upload) that a single explicit sync step avoids.
 
 MOSEQ_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export MOSEQ_ROOT_DIR="$(cd "$MOSEQ_COMMON_DIR/.." && pwd)"
@@ -29,6 +45,15 @@ esac
 
 export MOSEQ_SIF="${MOSEQ_SIF:-$GROUP_SCRATCH/containers/moseq/moseq_v01.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
+
+# Canonical home for every lab member's Moseq projects (see comment above).
+export MOSEQ_PROJECTS_BASE="${MOSEQ_PROJECTS_BASE:-$GROUP_SCRATCH/Moseq}"
+mkdir -p "$MOSEQ_PROJECTS_BASE" 2>/dev/null || true
+
+# Drive-side mirror of the same layout: gdrive:Moseq/<project_name>/ <->
+# $MOSEQ_PROJECTS_BASE/<project_name>/, same session subfolder names on
+# both sides. `run moseq init`/`run sync` assume this symmetry.
+export MOSEQ_DRIVE_BASE="${MOSEQ_DRIVE_BASE:-gdrive:Moseq}"
 
 # Jupyter discovers kernelspecs via JUPYTER_PATH, looking for
 # <dir>/kernels/<name>/kernel.json under each entry -- NOT a bare
