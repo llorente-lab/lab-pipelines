@@ -43,7 +43,14 @@ case ":$PATH:" in
   *) export PATH="$CLI_DIR:$PATH" ;;
 esac
 
-export MOSEQ_SIF="${MOSEQ_SIF:-$GROUP_SCRATCH/containers/moseq/moseq_v03.sif}"
+# Non-versioned filename on purpose: GHCR keeps every real version (each CI
+# build is tagged with its commit SHA, see .github/workflows/moseq-build.yml),
+# but Sherlock only ever has one on-disk copy at a time. Updating means
+# `apptainer pull` overwriting this exact path -- no env_setup.sh edit, no
+# symlink juggling, every lab member picks up the new image the next time
+# they source this file / start a new shell. If you need to pin an older
+# version for a specific comparison, override MOSEQ_SIF for that one shell.
+export MOSEQ_SIF="${MOSEQ_SIF:-$GROUP_SCRATCH/containers/moseq/moseq.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
 # Canonical home for every lab member's Moseq projects (see comment above).

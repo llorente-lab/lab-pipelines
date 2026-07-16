@@ -34,7 +34,12 @@ case ":$PATH:" in
   *) export PATH="$CLI_DIR:$PATH" ;;
 esac
 
-export SIF="${SIF:-$GROUP_SCRATCH/containers/caiman/caiman_v.01.sif}"
+# Non-versioned filename on purpose: GHCR keeps every real version (each CI
+# build is tagged with its commit SHA), but Sherlock only ever has one
+# on-disk copy at a time -- updating means `apptainer pull` overwriting this
+# exact path, no env_setup.sh edit needed. Override SIF for one shell if you
+# need to pin an older version for comparison.
+export SIF="${SIF:-$GROUP_SCRATCH/containers/caiman/caiman.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
 # Where RawData/AnalyzedData actually get staged during a run. Defaults to
