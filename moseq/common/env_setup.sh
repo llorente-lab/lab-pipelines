@@ -48,9 +48,25 @@ esac
 # but Sherlock only ever has one on-disk copy at a time. Updating means
 # `apptainer pull` overwriting this exact path -- no env_setup.sh edit, no
 # symlink juggling, every lab member picks up the new image the next time
-# they source this file / start a new shell. If you need to pin an older
-# version for a specific comparison, override MOSEQ_SIF for that one shell.
-export MOSEQ_SIF="${MOSEQ_SIF:-$GROUP_SCRATCH/containers/moseq/moseq.sif}"
+# they source this file / start a new shell.
+#
+# Deliberately NOT `MOSEQ_SIF="${MOSEQ_SIF:-...}"` here. That pattern silently
+# breaks the moment MOSEQ_SIF is already exported in the shell -- from an old
+# login session, a stale value baked into ~/.bashrc by hand, or just this
+# file having been sourced once already earlier with an older default -- any
+# later change to the canonical path here then has no effect for that user,
+# with no error and no warning, because the `:-` fallback only fires when the
+# variable is completely unset. That's exactly the bug that caused a
+# multi-hour "why isn't poll_and_deploy picking up my change" debugging
+# session on 2026-07-16: env_setup.sh had deployed correctly, MOSEQ_SIF was
+# just already set from before.
+#
+# So: MOSEQ_SIF itself is always unconditionally recomputed from the
+# canonical path on every source, full stop. MOSEQ_SIF_OVERRIDE is the
+# escape hatch for genuinely wanting to pin a specific image for one shell
+# (e.g. comparing against an older GHCR tag) -- set THAT instead of MOSEQ_SIF,
+# and it takes precedence.
+export MOSEQ_SIF="${MOSEQ_SIF_OVERRIDE:-$GROUP_SCRATCH/containers/moseq/moseq.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
 # Canonical home for every lab member's Moseq projects (see comment above).

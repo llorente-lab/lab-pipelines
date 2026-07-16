@@ -37,9 +37,15 @@ esac
 # Non-versioned filename on purpose: GHCR keeps every real version (each CI
 # build is tagged with its commit SHA), but Sherlock only ever has one
 # on-disk copy at a time -- updating means `apptainer pull` overwriting this
-# exact path, no env_setup.sh edit needed. Override SIF for one shell if you
-# need to pin an older version for comparison.
-export SIF="${SIF:-$GROUP_SCRATCH/containers/caiman/caiman.sif}"
+# exact path, no env_setup.sh edit needed.
+#
+# Deliberately NOT `SIF="${SIF:-...}"` -- see moseq/common/env_setup.sh's
+# longer comment on why: that pattern silently stops picking up changes to
+# the default the moment SIF is already exported from anywhere (an old
+# shell, a stale ~/.bashrc line, a prior sourcing of this same file), with
+# no error. SIF is always unconditionally recomputed here; SIF_OVERRIDE is
+# the intentional escape hatch for pinning a specific image for one shell.
+export SIF="${SIF_OVERRIDE:-$GROUP_SCRATCH/containers/caiman/caiman.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
 # Where RawData/AnalyzedData actually get staged during a run. Defaults to
