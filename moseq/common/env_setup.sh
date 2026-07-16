@@ -43,7 +43,7 @@ case ":$PATH:" in
   *) export PATH="$CLI_DIR:$PATH" ;;
 esac
 
-export MOSEQ_SIF="${MOSEQ_SIF:-$GROUP_SCRATCH/containers/moseq/moseq_v01.sif}"
+export MOSEQ_SIF="${MOSEQ_SIF:-$GROUP_SCRATCH/containers/moseq/moseq_v03.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
 # Canonical home for every lab member's Moseq projects (see comment above).
