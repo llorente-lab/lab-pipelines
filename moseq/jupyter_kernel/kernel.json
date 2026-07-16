@@ -1,0 +1,9 @@
+{
+  "argv": [
+    "/home/groups/illorent/pipelines/current/moseq/jupyter_kernel/moseq_kernel_wrapper.sh",
+    "-f",
+    "{connection_file}"
+  ],
+  "display_name": "MoSeq2 (Apptainer)",
+  "language": "python"
+}
