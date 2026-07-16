@@ -20,7 +20,8 @@ set -uo pipefail  # deliberately not -e: a failed check should still let
                    # later checks run and report, not abort the whole script
 
 PIPELINES_ROOT="${PIPELINES_ROOT:-${GROUP_HOME:-$HOME}/pipelines}"
-ENV_SETUP_LINE="source $PIPELINES_ROOT/current/miniscope/common/env_setup.sh"
+MINISCOPE_ENV_SETUP_LINE="source $PIPELINES_ROOT/current/miniscope/common/env_setup.sh"
+MOSEQ_ENV_SETUP_LINE="source $PIPELINES_ROOT/current/moseq/common/env_setup.sh"
 BASHRC="$HOME/.bashrc"
 
 PASS=0
@@ -52,8 +53,14 @@ if [ -e "$PIPELINES_ROOT/current" ]; then
     # polluting this script's own environment or re-running its side effects
     # (mkdir, echo) twice.
     eval "$(bash -c "source '$ENV_FILE' >/dev/null 2>&1; echo SIF=\$SIF; echo RCLONE_CONFIG=\$RCLONE_CONFIG")"
-    check "container image exists (\$SIF)" '[ -f "$SIF" ]'
+    check "miniscope container image exists (\$SIF)" '[ -f "$SIF" ]'
     check "rclone config exists (\$RCLONE_CONFIG)" '[ -f "$RCLONE_CONFIG" ]'
+  fi
+
+  MOSEQ_ENV_FILE="$PIPELINES_ROOT/current/moseq/common/env_setup.sh"
+  if [ -f "$MOSEQ_ENV_FILE" ]; then
+    eval "$(bash -c "source '$MOSEQ_ENV_FILE' >/dev/null 2>&1; echo MOSEQ_SIF=\$MOSEQ_SIF")"
+    check "moseq container image exists (\$MOSEQ_SIF)" '[ -f "$MOSEQ_SIF" ]'
   fi
 fi
 
@@ -61,12 +68,20 @@ echo ""
 
 # --- wire up .bashrc, idempotently --------------------------------------
 
-if grep -qF "$ENV_SETUP_LINE" "$BASHRC" 2>/dev/null; then
-  echo "PASS - ~/.bashrc already sources env_setup.sh, nothing to add"
+if grep -qF "$MINISCOPE_ENV_SETUP_LINE" "$BASHRC" 2>/dev/null; then
+  echo "PASS - ~/.bashrc already sources miniscope env_setup.sh, nothing to add"
 else
-  echo "$ENV_SETUP_LINE" >> "$BASHRC"
+  echo "$MINISCOPE_ENV_SETUP_LINE" >> "$BASHRC"
   echo "ADDED - appended to ~/.bashrc:"
-  echo "    $ENV_SETUP_LINE"
+  echo "    $MINISCOPE_ENV_SETUP_LINE"
+fi
+
+if grep -qF "$MOSEQ_ENV_SETUP_LINE" "$BASHRC" 2>/dev/null; then
+  echo "PASS - ~/.bashrc already sources moseq env_setup.sh, nothing to add"
+else
+  echo "$MOSEQ_ENV_SETUP_LINE" >> "$BASHRC"
+  echo "ADDED - appended to ~/.bashrc:"
+  echo "    $MOSEQ_ENV_SETUP_LINE"
 fi
 
 echo ""
