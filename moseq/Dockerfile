@@ -88,6 +88,11 @@ RUN pip install --no-cache-dir --no-build-isolation --no-deps \
 RUN pip uninstall -y opencv-python && \
     pip install --no-cache-dir opencv-python-headless
 
+# Re-pin numpy<2 after all pip installs: the conda pin doesn't survive pip
+# upgrades, and pybasicbayes/pyhsmm Cython extensions are compiled against
+# the numpy 1.x ABI so numpy 2.x would cause an import-time dtype size error.
+RUN pip install --no-cache-dir "numpy<2.0.0"
+
 # Fail the build here, not three weeks from now on Sherlock, if any package's
 # import chain is broken.
 RUN python -c "\
