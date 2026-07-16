@@ -6,18 +6,26 @@ Moseq container, without OnDemand needing any custom app configuration.
 
 ## How it works
 
-- `kernel.json` tells Jupyter to launch the kernel process via
-  `moseq_kernel_wrapper.sh -f {connection_file}` instead of a bare `python`.
+- `kernels/moseq2-apptainer/kernel.json` tells Jupyter to launch the kernel
+  process via `moseq_kernel_wrapper.sh -f {connection_file}` instead of a
+  bare `python`. **The nesting matters**: Jupyter's kernel discovery looks
+  for `<dir>/kernels/<name>/kernel.json` under each `JUPYTER_PATH` entry,
+  not a bare `kernel.json` directly in the directory itself. An earlier
+  version of this had `kernel.json` sitting directly in `jupyter_kernel/`
+  and `jupyter kernelspec list` silently ignored it, no error, it just
+  never appeared. `deploy_check.sh` now checks the file at its correct
+  nested path specifically to catch a regression of this.
 - The wrapper `exec`s `apptainer exec ... python -m ipykernel_launcher`,
   so only the kernel (the process executing your code cells) runs inside
   the container. The outer Jupyter server, notebook UI, auth token, and
   port forwarding are all handled by OnDemand exactly as it already does
   for any other kernel, we're not replacing any of that.
-- `common/env_setup.sh` adds this directory to `JUPYTER_PATH`, which is how
-  Jupyter's kernel discovery finds it. Because this whole directory is
-  deployed through the normal GitOps `current` symlink, kernel updates
-  (new image version, wrapper script changes) apply automatically on the
-  next deploy, no per-user re-registration.
+- `common/env_setup.sh` adds this directory (`jupyter_kernel/`, the parent
+  of `kernels/`) to `JUPYTER_PATH`, which is how Jupyter's kernel discovery
+  finds it. Because this whole directory is deployed through the normal
+  GitOps `current` symlink, kernel updates (new image version, wrapper
+  script changes) apply automatically on the next deploy, no per-user
+  re-registration.
 
 ## Open question, needs verification on Sherlock
 
