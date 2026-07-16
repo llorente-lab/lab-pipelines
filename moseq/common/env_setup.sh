@@ -75,11 +75,14 @@ case ":${JUPYTER_PATH:-}:" in
   *) export JUPYTER_PATH="$JUPYTER_KERNEL_DIR${JUPYTER_PATH:+:$JUPYTER_PATH}" ;;
 esac
 
-# Same global per-job-name log directory convention as Miniscope.
-export SBATCH_OUTPUT="$SCRATCH/logs/%x/%j.out"
-export SBATCH_ERROR="$SCRATCH/logs/%x/%j.err"
-mkdir -p "$SCRATCH/logs/moseq_extract" "$SCRATCH/logs/moseq_pca" \
-         "$SCRATCH/logs/moseq_model" "$SCRATCH/logs/queue" 2>/dev/null || true
+# Unlike Miniscope, Moseq does NOT export a global SBATCH_OUTPUT/SBATCH_ERROR
+# convention here. Logs live inside each project instead
+# (<project_root>/slurm_logs/), computed and passed as explicit sbatch
+# --output/--error CLI flags by submit_moseq.py's _log_flags() -- see that
+# file's docstring. (A stray SBATCH_OUTPUT from Miniscope's env_setup.sh
+# being sourced in the same shell can't break this: Slurm's precedence is
+# command-line flag > environment variable > #SBATCH directive, and we
+# always pass --output/--error as actual command-line flags.)
 
 # Short wrapper, same shape as apptainer_python for Miniscope.
 apptainer_python() {

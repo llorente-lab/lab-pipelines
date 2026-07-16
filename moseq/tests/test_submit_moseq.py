@@ -65,9 +65,11 @@ class TestSbatchJobIdParsing(unittest.TestCase):
 
 
 class TestDependencyFlags(unittest.TestCase):
-    def test_none_when_no_dependencies(self):
-        self.assertIsNone(submit_moseq._dependency_flags(None))
-        self.assertIsNone(submit_moseq._dependency_flags([]))
+    def test_empty_list_when_no_dependencies(self):
+        # Returns [] (not None) so it composes cleanly with _log_flags()
+        # via list concatenation in _sbatch_flags().
+        self.assertEqual(submit_moseq._dependency_flags(None), [])
+        self.assertEqual(submit_moseq._dependency_flags([]), [])
 
     def test_single_dependency(self):
         self.assertEqual(
@@ -124,6 +126,98 @@ class TestSubmitExtraction(unittest.TestCase):
         mock_run.assert_not_called()
 
 
+class TestSubmitKappaScan(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_builds_expected_args_with_defaults(self):
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.extend(cmd)
+            return fake_sbatch_result("42")
+
+        with mock.patch.object(subprocess, "run", side_effect=fake_run):
+            job_id = submit_moseq.submit_kappa_scan(str(self.tmp))
+
+        self.assertEqual(job_id, "42")
+        # positional args after the script: project_root, n_models, scan_scale,
+        # min_kappa(""), max_kappa(""), num_iter
+        script_index = next(i for i, c in enumerate(captured) if c.endswith("kappa_scan.sbatch"))
+        tail = captured[script_index + 1:]
+        self.assertEqual(tail, [str(self.tmp.resolve()), "10", "log", "", "", "100"])
+
+    def test_passes_through_min_max_kappa_when_given(self):
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.extend(cmd)
+            return fake_sbatch_result("43")
+
+        with mock.patch.object(subprocess, "run", side_effect=fake_run):
+            submit_moseq.submit_kappa_scan(
+                str(self.tmp), n_models=5, min_kappa=1000.0, max_kappa=1000000.0
+            )
+
+        script_index = next(i for i, c in enumerate(captured) if c.endswith("kappa_scan.sbatch"))
+        tail = captured[script_index + 1:]
+        self.assertEqual(tail, [str(self.tmp.resolve()), "5", "log", "1000.0", "1000000.0", "100"])
+
+    def test_dependency_flags_passed_through(self):
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.extend(cmd)
+            return fake_sbatch_result("44")
+
+        with mock.patch.object(subprocess, "run", side_effect=fake_run):
+            submit_moseq.submit_kappa_scan(str(self.tmp), depends_on=["1", "2"])
+
+        self.assertIn("--dependency=afterok:1:2", captured)
+
+
+class TestSubmitLearnModel(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_builds_expected_args_with_defaults(self):
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.extend(cmd)
+            return fake_sbatch_result("50")
+
+        with mock.patch.object(subprocess, "run", side_effect=fake_run):
+            job_id = submit_moseq.submit_learn_model(str(self.tmp), kappa=50000.0)
+
+        self.assertEqual(job_id, "50")
+        script_index = next(i for i, c in enumerate(captured) if c.endswith("learn_model.sbatch"))
+        tail = captured[script_index + 1:]
+        self.assertEqual(tail, [str(self.tmp.resolve()), "50000.0", "1000", "model.p"])
+
+    def test_custom_dest_name_and_num_iter(self):
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.extend(cmd)
+            return fake_sbatch_result("51")
+
+        with mock.patch.object(subprocess, "run", side_effect=fake_run):
+            submit_moseq.submit_learn_model(
+                str(self.tmp), kappa=75000.0, num_iter=200, dest_name="model_k75000.p"
+            )
+
+        script_index = next(i for i, c in enumerate(captured) if c.endswith("learn_model.sbatch"))
+        tail = captured[script_index + 1:]
+        self.assertEqual(tail, [str(self.tmp.resolve()), "75000.0", "200", "model_k75000.p"])
+
+
 class TestSubmitMasterChaining(unittest.TestCase):
     """
     submit_master() should chain every stage via --dependency=afterok on
@@ -161,6 +255,23 @@ class TestSubmitMasterChaining(unittest.TestCase):
                 "compute_changepoints": "6",
             },
         )
+
+    def test_does_not_touch_modeling(self):
+        # Modeling needs a kappa-selection decision between the scan and
+        # the final fit, so submit_master() must never call these two --
+        # confirms the intentional gap documented in submit_master()'s
+        # docstring, not an accidental omission.
+        with mock.patch.object(submit_moseq, "submit_extraction", return_value=[]), \
+             mock.patch.object(submit_moseq, "submit_aggregate", return_value="1"), \
+             mock.patch.object(submit_moseq, "submit_pca_fit", return_value="2"), \
+             mock.patch.object(submit_moseq, "submit_pca_apply", return_value="3"), \
+             mock.patch.object(submit_moseq, "submit_compute_changepoints", return_value="4"), \
+             mock.patch.object(submit_moseq, "submit_kappa_scan") as m_kappa, \
+             mock.patch.object(submit_moseq, "submit_learn_model") as m_learn:
+            submit_moseq.submit_master(str(self.tmp))
+
+        m_kappa.assert_not_called()
+        m_learn.assert_not_called()
 
     def test_aggregate_gets_no_dependency_when_extraction_submits_nothing(self):
         with mock.patch.object(submit_moseq, "submit_extraction", return_value=[]), \

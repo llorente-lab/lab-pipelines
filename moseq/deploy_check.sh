@@ -27,6 +27,16 @@ python3 tests/test_reconcile_moseq_extraction.py
 python3 tests/test_submit_moseq.py
 
 for f in extract/extract_session.sbatch extract/aggregate.sbatch \
-         pca/pca_fit.sbatch pca/pca_apply.sbatch pca/compute_changepoints.sbatch; do
+         pca/pca_fit.sbatch pca/pca_apply.sbatch pca/compute_changepoints.sbatch \
+         model/kappa_scan.sbatch model/learn_model.sbatch; do
   bash -n "$f"
 done
+
+# compute_npcs.py's file-I/O parts (h5py, ruamel.yaml) need the container,
+# but its actual selection math (npcs_for_variance) is pure numpy and
+# fully unit-tested here, no container needed.
+python3 tests/test_compute_npcs.py
+
+# select_best_kappa.py needs moseq2_viz (container-only), so only
+# syntax-checked here, same treatment as reconcile_moseq_progress.py above.
+python3 -c "import ast; ast.parse(open('model/select_best_kappa.py').read())"
