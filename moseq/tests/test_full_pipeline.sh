@@ -27,8 +27,18 @@ set -uo pipefail  # NOT -e: we want to keep going through checks and report
 MOSEQ_COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../common" && pwd)"
 TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Source directly, rather than relying on the caller having already sourced
+# it interactively: apptainer_python/apptainer_exec are shell functions, and
+# functions (unlike exported env vars) are NOT inherited by a `bash
+# script.sh` child process unless the parent explicitly ran `export -f` on
+# them -- env_setup.sh doesn't do that. So even if you already sourced
+# env_setup.sh in your interactive shell, this script's own `bash` process
+# starts with no knowledge of those functions unless it sources the file
+# itself too. Safe to source twice (idempotent PATH/JUPYTER_PATH checks).
+source "$MOSEQ_COMMON_DIR/env_setup.sh"
+
 if [ -z "${MOSEQ_SIF-}" ]; then
-  echo "MOSEQ_SIF is not set -- source common/env_setup.sh first." >&2
+  echo "MOSEQ_SIF is still not set after sourcing env_setup.sh -- something's wrong with the environment." >&2
   exit 1
 fi
 
