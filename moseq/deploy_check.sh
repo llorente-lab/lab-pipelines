@@ -11,3 +11,9 @@ bash -n common/env_setup.sh
 bash -n jupyter_kernel/moseq_kernel_wrapper.sh
 
 python3 -c "import json; json.load(open('jupyter_kernel/kernel.json'))"
+
+# reconcile_moseq_progress.py imports moseq2_app (needs the container), so
+# it's deliberately NOT checked here -- same reasoning as
+# miniscope/deploy_check.sh excluding test_path_resolution.py. Only the
+# pure-stdlib extraction-status check runs as part of the fast deploy gate.
+python3 tests/test_reconcile_moseq_extraction.py
