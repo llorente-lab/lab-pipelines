@@ -28,6 +28,16 @@ RUN conda install -y python=3.11 && conda clean -ay
 # pybasicbayes/pyhsmm list them as build-system requires
 RUN conda install -y "numpy<2.0.0" "cython>=3" && conda clean -ay
 
+# scikit-learn <1.3 required for the published flip-classifier pickles:
+# they were pickled with sklearn 0.19 (2018), which stored tree nodes in a
+# 7-field C struct. sklearn 1.3 added an 8th field (missing_go_to_left) to
+# support NA-in-splits, and the setstate check refuses the old dtype. Ranges
+# >=0.22 keep the sklearn.ensemble._forest module the shim aliases to.
+# Verified locally that the 2018 pickle loads + predict_proba works on
+# sklearn 1.2.2, and that no downstream moseq2 module uses a sklearn>=1.3
+# API. Bump this ceiling only if a downstream package starts needing one.
+RUN pip install --no-cache-dir "scikit-learn>=1.2,<1.3"
+
 # PDM build backend (used by all 8 packages)
 RUN pip install --no-cache-dir pdm-backend
 
