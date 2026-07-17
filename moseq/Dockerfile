@@ -85,11 +85,19 @@ RUN pip uninstall -y opencv-python && \
     pip install --no-cache-dir opencv-python-headless "numpy<2.0.0"
 
 # Fail the build here, not three weeks from now on Sherlock, if any package's
-# import chain is broken.
-RUN python -W error::DeprecationWarning -c "\
-import moseq2_extract, moseq2_pca, moseq2_model, moseq2_viz, moseq2_app; \
-import cv2; \
-print('OK, cv2', cv2.__version__)"
+# import chain is broken. The smoke suite covers:
+#   - every submodule of every package imports cleanly (test_imports.py)
+#   - every click CLI's --help exits 0 (test_clis.py)
+#   - the fragile-across-upgrades APIs that keep silently breaking on us:
+#     tifffile write/read, opencv on frame stacks, numpy 2.x guard,
+#     opencv-headless guard, sklearn legacy pickle shim, ARHMM construction
+#     end-to-end through the pyhsmm/pybasicbayes/autoregressive stack
+#     (test_api.py)
+# Any addition to this suite protects future builds from the same class of
+# "container built fine, dies on Sherlock" regression.
+COPY tests/smoke /opt/moseq-smoke
+RUN pip install --no-cache-dir "pytest>=7"
+RUN pytest -x --tb=short /opt/moseq-smoke
 
 # Jupyter notebook server. Deliberately NOT hardcoding an empty
 # token/password here: Sherlock's Open OnDemand Jupyter app manages its own
