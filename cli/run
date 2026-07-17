@@ -24,32 +24,40 @@ Usage:
   run miniscope motion-correction [--mouse M [--date D --tp T]]
   run miniscope cnmfe             [--mouse M [--date D --tp T]]
   run miniscope master
-  run moseq init <project_name>
-  run moseq pull <project_name> --source <gdrive_path>
+  run moseq init <project_name> [--source <gdrive_path>]
+  run moseq pull <project_name> [--source <gdrive_path>]
   run moseq projects
   run status
   run logs miniscope <stage> --mouse M --date D --tp T
+  run logs moseq pull <project_name>
   run sync <src> <dst> [rclone flags...]
   run queue miniscope [--mouse M]
   run list
 
-`run moseq init <name>` creates $MOSEQ_PROJECTS_BASE/<name> (canonical home
-for every lab member's Moseq projects, see moseq/common/env_setup.sh) and
-records name/Sherlock path in $MOSEQ_PROJECTS_BASE/<name>/project_meta.yaml.
-It does NOT pull anything from Drive -- init only creates the empty project
-shell. Project names must be unique (enforced by directory existence).
+`run moseq init <name> [--source <gdrive_path>]` creates
+$MOSEQ_PROJECTS_BASE/<name> (canonical home for every lab member's Moseq
+projects, see moseq/common/env_setup.sh) and records name/Sherlock path in
+$MOSEQ_PROJECTS_BASE/<name>/project_meta.yaml. It does NOT pull anything
+from Drive, even if --source is given -- init always only creates the
+empty project shell. Passing --source here just RECORDS the Drive path for
+later (saves retyping it on the first pull); omit it and record it on the
+first `run moseq pull` instead if you prefer. Project names must be unique
+(enforced by directory existence).
 
-`run moseq pull <name> --source <gdrive_path>` does the actual sync: an
-explicit `rclone copy` from <gdrive_path> into the project directory,
-recording <gdrive_path> into project_meta.yaml as gdrive_source the first
-time it's given. Once a project has a recorded gdrive_source, later calls
-can drop --source and it'll reuse what's on file (e.g. after adding new
-sessions on Drive: `run moseq pull <name>`). <gdrive_path> can be any
-rclone remote path, not just something under the default
-gdrive:Moseq/<name> convention. Deliberately a fully separate, manual step
-from init -- unlike Miniscope, syncing only happens when you explicitly ask
-for it, and init/pull being two different commands means creating a
-project never implicitly triggers a Drive transfer.
+`run moseq pull <name> [--source <gdrive_path>]` does the actual sync.
+Submitted as a Slurm job (pull.sbatch) on Sherlock's shared `normal`
+partition, not run inline and never on illorent -- real Drive transfers
+can be large, login nodes are shared/rate-limited, and a non-exclusive job
+sitting on illorent would block the lab's --exclusive compute jobs from
+starting. This makes `run moseq pull` asynchronous: it returns immediately
+with a job ID rather than blocking with live progress output. Watch it
+with `run logs moseq pull <name>`. --source is required the first time (or
+if init already recorded one, it's optional); once recorded, later calls
+can drop --source and it reuses gdrive_source from project_meta.yaml.
+<gdrive_path> can be any rclone remote path, not just something under the
+default gdrive:Moseq/<name> convention. Deliberately a fully separate,
+manual step from init -- unlike Miniscope, syncing only happens when you
+explicitly ask for it.
 
 `run moseq projects` lists every known project (name, Sherlock path, Drive
 source) by scanning $MOSEQ_PROJECTS_BASE/*/project_meta.yaml -- each
@@ -205,6 +213,20 @@ created: $(date -Is)
 EOF
 }
 
+# Resolves <name> to its project directory and fails loudly if it doesn't
+# exist. Used by `run logs moseq pull <name>` below.
+moseq_require_project() {
+  local name="$1"
+  moseq_validate_name "$name"
+  local project_dir
+  project_dir="$(moseq_project_dir "$name")"
+  if [ ! -d "$project_dir" ]; then
+    echo "run moseq: project '$name' doesn't exist at $project_dir -- did you mean 'run moseq init $name'?" >&2
+    exit 1
+  fi
+  echo "$project_dir"
+}
+
 cmd_moseq() {
   if [ -z "${MOSEQ_PROJECTS_BASE-}" ]; then
     echo "run moseq: environment not set up -- have you sourced moseq/common/env_setup.sh? (see cli/setup.sh)" >&2
@@ -215,10 +237,13 @@ cmd_moseq() {
     init)
       local name="${1-}"; shift || true
       moseq_validate_name "$name"
-      if [ $# -gt 0 ]; then
-        echo "run moseq init: unrecognized argument '$1' -- init no longer takes --source, use 'run moseq pull $name --source <gdrive_path>' after init" >&2
-        exit 1
-      fi
+      local source=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --source) source="$2"; shift 2 ;;
+          *) echo "run moseq init: unrecognized argument '$1'" >&2; exit 1 ;;
+        esac
+      done
 
       local project_dir
       project_dir="$(moseq_project_dir "$name")"
@@ -228,9 +253,16 @@ cmd_moseq() {
       fi
 
       mkdir -p "$project_dir"
-      moseq_write_meta "$project_dir" "$name" ""
+      # --source here only RECORDS the path, it never pulls -- init always
+      # creates an empty project shell, no exceptions. This just saves
+      # having to retype --source on the first `run moseq pull` afterward.
+      moseq_write_meta "$project_dir" "$name" "$source"
       echo "run moseq init: created $project_dir"
-      echo "run moseq init: no data pulled yet -- next: run moseq pull $name --source <gdrive_path>"
+      if [ -n "$source" ]; then
+        echo "run moseq init: recorded gdrive_source=$source (not pulled yet) -- next: run moseq pull $name"
+      else
+        echo "run moseq init: no data pulled yet -- next: run moseq pull $name --source <gdrive_path>"
+      fi
       ;;
     pull)
       local name="${1-}"; shift || true
@@ -252,22 +284,39 @@ cmd_moseq() {
       local meta_file="$project_dir/project_meta.yaml"
 
       if [ -z "$source" ]; then
-        # No --source given -- fall back to whatever was recorded on a
-        # previous pull, so re-syncing later doesn't require retyping the
-        # Drive path every time.
+        # No --source given -- fall back to whatever was recorded on init
+        # or a previous pull, so re-syncing later doesn't require retyping
+        # the Drive path every time.
         if [ -f "$meta_file" ]; then
           source="$(moseq_read_meta_field "$meta_file" "gdrive_source")"
         fi
         if [ -z "$source" ]; then
-          echo "run moseq pull: --source is required the first time (no gdrive_source recorded yet for '$name')" >&2
+          echo "run moseq pull: --source is required (no gdrive_source recorded yet for '$name')" >&2
           exit 1
         fi
       fi
 
-      echo "run moseq pull: syncing $source -> $project_dir (new/changed files only, rclone copy is non-destructive)"
-      apptainer_rclone copy "$source" "$project_dir" --progress
+      # Submitted as a job, not run inline: rclone transfers of real Moseq
+      # session data can be large (many GB), and Sherlock login nodes are
+      # shared/rate-limited -- sustained transfers there risk throttling.
+      # pull.sbatch runs on Sherlock's shared `normal` partition (never
+      # illorent -- a non-exclusive job sitting on illorent would block the
+      # lab's --exclusive compute jobs from starting, since --exclusive
+      # needs the whole node free). This makes `run moseq pull`
+      # asynchronous: it returns immediately with a job ID instead of
+      # blocking with live --progress output the way it used to. Watch
+      # progress with `run moseq logs pull <name>`, or just let it run.
+      local log_dir="$project_dir/slurm_logs"
+      mkdir -p "$log_dir"
+      local job_output
+      job_output="$(sbatch \
+        "--output=$log_dir/pull-%j.out" \
+        "--error=$log_dir/pull-%j.err" \
+        "$MOSEQ_ROOT_DIR/sync/pull.sbatch" "$source" "$project_dir")"
+      echo "$job_output"
       moseq_write_meta "$project_dir" "$name" "$source"
-      echo "run moseq pull: done, recorded gdrive_source=$source in project_meta.yaml"
+      echo "run moseq pull: recorded gdrive_source=$source in project_meta.yaml"
+      echo "run moseq pull: watch progress with 'run logs moseq pull $name'"
       ;;
     projects)
       local found=0
@@ -308,18 +357,25 @@ cmd_status() {
 
 cmd_logs() {
   local pipeline="${1-}"; shift || true
-  if [ "$pipeline" != "miniscope" ]; then
-    echo "run logs: only 'miniscope' is supported right now" >&2
-    exit 1
-  fi
+  case "$pipeline" in
+    miniscope) cmd_logs_miniscope "$@" ;;
+    moseq)     cmd_logs_moseq "$@" ;;
+    *)
+      echo "run logs: pipeline must be 'miniscope' or 'moseq'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+cmd_logs_miniscope() {
   local stage="${1-}"; shift || true
   if [ "$stage" != "motion-correction" ] && [ "$stage" != "cnmfe" ]; then
-    echo "run logs: stage must be 'motion-correction' or 'cnmfe'" >&2
+    echo "run logs miniscope: stage must be 'motion-correction' or 'cnmfe'" >&2
     exit 1
   fi
   parse_session_flags "$@"
   if [ -z "$MOUSE" ] || [ -z "$DATE" ] || [ -z "$TP" ]; then
-    echo "run logs: --mouse, --date, and --tp are all required" >&2
+    echo "run logs miniscope: --mouse, --date, and --tp are all required" >&2
     exit 1
   fi
 
@@ -331,7 +387,29 @@ cmd_logs() {
   local latest
   latest="$(ls -t "$log_dir"/${stage_tag}_*.log 2>/dev/null | head -n1 || true)"
   if [ -z "$latest" ]; then
-    echo "run logs: no ${stage_tag} log found under $log_dir yet" >&2
+    echo "run logs miniscope: no ${stage_tag} log found under $log_dir yet" >&2
+    exit 1
+  fi
+  echo "run logs: tailing $latest (Ctrl-C to stop)"
+  tail -F "$latest"
+}
+
+# Only 'pull' is wired up here for now -- logs for the moseq2 compute
+# stages (extract/aggregate/pca-fit/.../kappa-scan) live on a separate,
+# not-yet-merged branch (stash/moseq-cli-wiring).
+cmd_logs_moseq() {
+  local stage="${1-}"; shift || true
+  local name="${1-}"; shift || true
+  if [ "$stage" != "pull" ] || [ -z "$name" ]; then
+    echo "run logs moseq: usage: run logs moseq pull <project_name>" >&2
+    exit 1
+  fi
+  local project_dir; project_dir="$(moseq_require_project "$name")"
+  local log_dir="$project_dir/slurm_logs"
+  local latest
+  latest="$(ls -t "$log_dir"/pull-*.out 2>/dev/null | head -n1 || true)"
+  if [ -z "$latest" ]; then
+    echo "run logs moseq: no pull log found under $log_dir yet -- has 'run moseq pull $name' been submitted?" >&2
     exit 1
   fi
   echo "run logs: tailing $latest (Ctrl-C to stop)"
