@@ -90,6 +90,20 @@ if [ -z "${CAIMAN_MC_DIR-}" ] || [ -z "${CAIMAN_CNMFE_DIR-}" ] || [ -z "${CAIMAN
   exit 1
 fi
 
+# `run` is invoked as its own child process (found via PATH), not sourced
+# into the caller's interactive shell -- so while exported env vars (like
+# CAIMAN_MC_DIR above) carry over fine, shell FUNCTIONS defined by
+# env_setup.sh (apptainer_python, apptainer_rclone, apptainer_exec, ...) do
+# NOT, even if the caller already sourced env_setup.sh themselves. Same
+# root cause hit in test_full_pipeline.sh and poll_and_deploy.sh's git
+# workaround. Source both pipelines' env_setup.sh here directly so every
+# apptainer_* helper is actually defined inside this process, regardless of
+# what the caller already did. Safe/idempotent to source twice.
+# shellcheck disable=SC1091
+[ -n "${CAIMAN_COMMON_DIR-}" ] && source "$CAIMAN_COMMON_DIR/env_setup.sh"
+# shellcheck disable=SC1091
+[ -n "${MOSEQ_COMMON_DIR-}" ] && source "$MOSEQ_COMMON_DIR/env_setup.sh"
+
 # --- flag parsing shared by motion-correction/cnmfe/logs ---------------------
 
 parse_session_flags() {
