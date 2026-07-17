@@ -409,7 +409,7 @@ cmd_logs_moseq() {
   local latest
   latest="$(ls -t "$log_dir"/pull-*.out 2>/dev/null | head -n1 || true)"
   if [ -z "$latest" ]; then
-    echo "run logs moseq: no pull log found under $log_dir yet -- has 'run moseq pull $name' been submitted?" >&2
+    echo "run logs moseq: no pull log found under $log_dir yet -- has 'run moseq pull $name' been submitted? You may also try checking 'squeue -u $USER' to see if your job has been submitted or is in pending state." >&2
     exit 1
   fi
   echo "run logs: tailing $latest (Ctrl-C to stop)"
