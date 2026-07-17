@@ -86,7 +86,7 @@ RUN pip uninstall -y opencv-python && \
 
 # Fail the build here, not three weeks from now on Sherlock, if any package's
 # import chain is broken.
-RUN python -c "\
+RUN python -W error::DeprecationWarning -c "\
 import moseq2_extract, moseq2_pca, moseq2_model, moseq2_viz, moseq2_app; \
 import cv2; \
 print('OK, cv2', cv2.__version__)"

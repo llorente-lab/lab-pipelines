@@ -37,6 +37,21 @@ TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # itself too. Safe to source twice (idempotent PATH/JUPYTER_PATH checks).
 source "$MOSEQ_COMMON_DIR/env_setup.sh"
 
+# submit_moseq.py runs on the HOST, not inside the container, and uses
+# `from __future__ import annotations` (needs Python 3.7+). Sherlock login
+# nodes default `python3` to the ancient system Python 3.6.8, which doesn't
+# support that syntax at all -- same root cause as poll_and_deploy.sh's git
+# version workaround. Prepend a modern Python onto PATH unconditionally,
+# the same way, rather than assuming the caller's shell already has one.
+PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
+[ -d "$PYTHON_MODULE_BIN" ] && PATH="$PYTHON_MODULE_BIN:$PATH"
+PY_VERSION="$(python3 -c 'import sys; print("%d.%d" % sys.version_info[:2])' 2>/dev/null || echo "0.0")"
+if [ "$(printf '%s\n%s\n' "3.7" "$PY_VERSION" | sort -V | head -n1)" != "3.7" ]; then
+  echo "fatal: python3 on PATH ($(command -v python3), version $PY_VERSION) is older than 3.7, submit_moseq.py needs 'from __future__ import annotations'." >&2
+  echo "fatal: expected a modern python3 at $PYTHON_MODULE_BIN -- check it still exists and update PYTHON_MODULE_BIN above if the version changed." >&2
+  exit 1
+fi
+
 if [ -z "${MOSEQ_SIF-}" ]; then
   echo "MOSEQ_SIF is still not set after sourcing env_setup.sh -- something's wrong with the environment." >&2
   exit 1

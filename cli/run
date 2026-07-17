@@ -24,8 +24,8 @@ Usage:
   run miniscope motion-correction [--mouse M [--date D --tp T]]
   run miniscope cnmfe             [--mouse M [--date D --tp T]]
   run miniscope master
-  run moseq init <project_name> --source <gdrive_path>
-  run moseq pull <project_name>
+  run moseq init <project_name>
+  run moseq pull <project_name> --source <gdrive_path>
   run moseq projects
   run status
   run logs miniscope <stage> --mouse M --date D --tp T
@@ -33,20 +33,23 @@ Usage:
   run queue miniscope [--mouse M]
   run list
 
-`run moseq init <name> --source <gdrive_path>` creates
-$MOSEQ_PROJECTS_BASE/<name> (canonical home for every lab member's Moseq
-projects, see moseq/common/env_setup.sh), does one explicit pull from
-<gdrive_path> into it, and records name/Sherlock path/Drive source in
-$MOSEQ_PROJECTS_BASE/<name>/project_meta.yaml. <gdrive_path> can be any
-rclone remote path, not just something under the default
-gdrive:Moseq/<name> convention (--source defaults to that if omitted).
-Project names must be unique (enforced by directory existence) and this is
-a deliberately manual step, not something extraction jobs do automatically
--- unlike Miniscope, syncing only happens when you ask.
+`run moseq init <name>` creates $MOSEQ_PROJECTS_BASE/<name> (canonical home
+for every lab member's Moseq projects, see moseq/common/env_setup.sh) and
+records name/Sherlock path in $MOSEQ_PROJECTS_BASE/<name>/project_meta.yaml.
+It does NOT pull anything from Drive -- init only creates the empty project
+shell. Project names must be unique (enforced by directory existence).
 
-`run moseq pull <name>` re-syncs later (e.g. after adding new sessions on
-Drive), reading the original --source back out of that project's own
-project_meta.yaml so you don't have to remember/retype it.
+`run moseq pull <name> --source <gdrive_path>` does the actual sync: an
+explicit `rclone copy` from <gdrive_path> into the project directory,
+recording <gdrive_path> into project_meta.yaml as gdrive_source the first
+time it's given. Once a project has a recorded gdrive_source, later calls
+can drop --source and it'll reuse what's on file (e.g. after adding new
+sessions on Drive: `run moseq pull <name>`). <gdrive_path> can be any
+rclone remote path, not just something under the default
+gdrive:Moseq/<name> convention. Deliberately a fully separate, manual step
+from init -- unlike Miniscope, syncing only happens when you explicitly ask
+for it, and init/pull being two different commands means creating a
+project never implicitly triggers a Drive transfer.
 
 `run moseq projects` lists every known project (name, Sherlock path, Drive
 source) by scanning $MOSEQ_PROJECTS_BASE/*/project_meta.yaml -- each
@@ -198,54 +201,59 @@ cmd_moseq() {
     init)
       local name="${1-}"; shift || true
       moseq_validate_name "$name"
-      local source=""
-      while [ $# -gt 0 ]; do
-        case "$1" in
-          --source) source="$2"; shift 2 ;;
-          *) echo "run moseq init: unrecognized argument '$1'" >&2; exit 1 ;;
-        esac
-      done
-      source="${source:-$MOSEQ_DRIVE_BASE/$name}"
+      if [ $# -gt 0 ]; then
+        echo "run moseq init: unrecognized argument '$1' -- init no longer takes --source, use 'run moseq pull $name --source <gdrive_path>' after init" >&2
+        exit 1
+      fi
 
       local project_dir
       project_dir="$(moseq_project_dir "$name")"
       if [ -d "$project_dir" ]; then
-        echo "run moseq init: $project_dir already exists -- project names must be unique. Use 'run moseq pull $name' to re-sync an existing project." >&2
+        echo "run moseq init: $project_dir already exists -- project names must be unique." >&2
         exit 1
       fi
 
       mkdir -p "$project_dir"
+      moseq_write_meta "$project_dir" "$name" ""
       echo "run moseq init: created $project_dir"
-      echo "run moseq init: pulling $source -> $project_dir"
-      apptainer_rclone copy "$source" "$project_dir" --progress
-      moseq_write_meta "$project_dir" "$name" "$source"
-      echo "run moseq init: done, recorded project_meta.yaml (name=$name, source=$source)"
-      echo "run moseq init: next steps:"
-      echo "  - open the project notebook via Sherlock OnDemand (kernel: MoSeq2 (Apptainer))"
-      echo "  - or check status any time: run moseq queue --project $name"
+      echo "run moseq init: no data pulled yet -- next: run moseq pull $name --source <gdrive_path>"
       ;;
     pull)
-      local name="${1-}"
+      local name="${1-}"; shift || true
       moseq_validate_name "$name"
+      local source=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --source) source="$2"; shift 2 ;;
+          *) echo "run moseq pull: unrecognized argument '$1'" >&2; exit 1 ;;
+        esac
+      done
+
       local project_dir
       project_dir="$(moseq_project_dir "$name")"
       if [ ! -d "$project_dir" ]; then
-        echo "run moseq pull: $project_dir doesn't exist yet -- did you mean 'run moseq init $name --source <gdrive_path>'?" >&2
+        echo "run moseq pull: $project_dir doesn't exist yet -- did you mean 'run moseq init $name' first?" >&2
         exit 1
       fi
       local meta_file="$project_dir/project_meta.yaml"
-      if [ ! -f "$meta_file" ]; then
-        echo "run moseq pull: no project_meta.yaml found in $project_dir -- can't recover the original --source. Was this project created by 'run moseq init'?" >&2
-        exit 1
-      fi
-      local source
-      source="$(moseq_read_meta_field "$meta_file" "gdrive_source")"
+
       if [ -z "$source" ]; then
-        echo "run moseq pull: project_meta.yaml exists but has no gdrive_source field ($meta_file)" >&2
-        exit 1
+        # No --source given -- fall back to whatever was recorded on a
+        # previous pull, so re-syncing later doesn't require retyping the
+        # Drive path every time.
+        if [ -f "$meta_file" ]; then
+          source="$(moseq_read_meta_field "$meta_file" "gdrive_source")"
+        fi
+        if [ -z "$source" ]; then
+          echo "run moseq pull: --source is required the first time (no gdrive_source recorded yet for '$name')" >&2
+          exit 1
+        fi
       fi
+
       echo "run moseq pull: syncing $source -> $project_dir (new/changed files only, rclone copy is non-destructive)"
       apptainer_rclone copy "$source" "$project_dir" --progress
+      moseq_write_meta "$project_dir" "$name" "$source"
+      echo "run moseq pull: done, recorded gdrive_source=$source in project_meta.yaml"
       ;;
     projects)
       local found=0
@@ -264,7 +272,7 @@ cmd_moseq() {
         echo "  created: $p_created"
       done
       if [ "$found" -eq 0 ]; then
-        echo "no moseq projects found under $MOSEQ_PROJECTS_BASE yet -- try 'run moseq init <name> --source <gdrive_path>'"
+        echo "no moseq projects found under $MOSEQ_PROJECTS_BASE yet -- try 'run moseq init <name>'"
       fi
       ;;
     "")
