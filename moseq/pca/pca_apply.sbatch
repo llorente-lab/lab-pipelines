@@ -32,6 +32,7 @@ export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export VECLIB_MAXIMUM_THREADS=$SLURM_CPUS_PER_TASK
+export NUMEXPR_MAX_THREADS=$SLURM_CPUS_PER_TASK
 
 echo "------------------------------------------------------------------"
 echo ">>> PCA APPLY START: $(date)"

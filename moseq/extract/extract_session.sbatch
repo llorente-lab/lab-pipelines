@@ -40,6 +40,10 @@ export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export VECLIB_MAXIMUM_THREADS=$SLURM_CPUS_PER_TASK
+# numexpr (a moseq2-extract dependency) defaults NUMEXPR_MAX_THREADS to 64
+# and errors ("nthreads cannot be larger than...") if it detects more cores
+# than that available -- this node's full allocation (256) exceeds it.
+export NUMEXPR_MAX_THREADS=$SLURM_CPUS_PER_TASK
 
 # moseq2-extract's `extract` command defaults --output-dir to the relative
 # path "proc", resolved against whatever the process's cwd is -- cd into
