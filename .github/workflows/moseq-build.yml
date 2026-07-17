@@ -6,14 +6,6 @@ name: moseq-build
 # build time), and only pushes to GHCR if it passes. Manual trigger
 # (workflow_dispatch) is also available for rebuilding without a code change,
 # e.g. to pick up a base-image security patch.
-#
-# Deliberately does NOT touch Sherlock. Pulling the new image onto Sherlock
-# and swapping it into place (apptainer pull ... containers/moseq/moseq.sif)
-# stays a manual step -- see moseq/common/env_setup.sh's comment on why an
-# auto-pull-on-Sherlock daemon was considered and rejected: containers are
-# an entire environment, and swapping one out from under an in-flight
-# --exclusive job on the lab's single node is worse for reproducibility
-# than a deliberate, visible pull.
 
 on:
   push:

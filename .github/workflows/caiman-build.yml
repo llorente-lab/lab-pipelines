@@ -1,15 +1,5 @@
 name: caiman-build
 
-# Same pattern as moseq-build.yml: build on change, smoke test inside the
-# built image, only push to GHCR if that passes. CaImAn's Dockerfile
-# installs straight from the upstream CaImAn git ref rather than vendored
-# source, so this also triggers on manual dispatch with a chosen
-# CAIMAN_REF, useful for picking up an upstream CaImAn release without
-# touching any file in this repo.
-#
-# Same rule as moseq: this workflow never touches Sherlock. Pulling the new
-# image and overwriting containers/caiman/caiman.sif stays a manual step.
-
 on:
   push:
     branches: [main]

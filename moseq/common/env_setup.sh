@@ -42,30 +42,6 @@ case ":$PATH:" in
   *":$CLI_DIR:"*) ;;  # already on PATH, don't add it twice
   *) export PATH="$CLI_DIR:$PATH" ;;
 esac
-
-# Non-versioned filename on purpose: GHCR keeps every real version (each CI
-# build is tagged with its commit SHA, see .github/workflows/moseq-build.yml),
-# but Sherlock only ever has one on-disk copy at a time. Updating means
-# `apptainer pull` overwriting this exact path -- no env_setup.sh edit, no
-# symlink juggling, every lab member picks up the new image the next time
-# they source this file / start a new shell.
-#
-# Deliberately NOT `MOSEQ_SIF="${MOSEQ_SIF:-...}"` here. That pattern silently
-# breaks the moment MOSEQ_SIF is already exported in the shell -- from an old
-# login session, a stale value baked into ~/.bashrc by hand, or just this
-# file having been sourced once already earlier with an older default -- any
-# later change to the canonical path here then has no effect for that user,
-# with no error and no warning, because the `:-` fallback only fires when the
-# variable is completely unset. That's exactly the bug that caused a
-# multi-hour "why isn't poll_and_deploy picking up my change" debugging
-# session on 2026-07-16: env_setup.sh had deployed correctly, MOSEQ_SIF was
-# just already set from before.
-#
-# So: MOSEQ_SIF itself is always unconditionally recomputed from the
-# canonical path on every source, full stop. MOSEQ_SIF_OVERRIDE is the
-# escape hatch for genuinely wanting to pin a specific image for one shell
-# (e.g. comparing against an older GHCR tag) -- set THAT instead of MOSEQ_SIF,
-# and it takes precedence.
 export MOSEQ_SIF="${MOSEQ_SIF_OVERRIDE:-$GROUP_SCRATCH/containers/moseq/moseq.sif}"
 export RCLONE_CONFIG="${RCLONE_CONFIG:-$GROUP_HOME/rclone/rclone.conf}"
 
@@ -78,34 +54,11 @@ mkdir -p "$MOSEQ_PROJECTS_BASE" 2>/dev/null || true
 # both sides. `run moseq init`/`run sync` assume this symmetry.
 export MOSEQ_DRIVE_BASE="${MOSEQ_DRIVE_BASE:-gdrive:Moseq}"
 
-# Jupyter discovers kernelspecs via JUPYTER_PATH, looking for
-# <dir>/kernels/<name>/kernel.json under each entry -- NOT a bare
-# kernel.json directly in <dir> (this tripped us up once already: an
-# earlier version had kernel.json sitting directly in jupyter_kernel/,
-# which `jupyter kernelspec list` silently ignored, no error, it just
-# never showed up). The actual file now lives at
-# jupyter_kernel/kernels/moseq2-apptainer/kernel.json, matching that
-# convention. Pointing JUPYTER_PATH at the deployed (GitOps-managed)
-# jupyter_kernel/ directory means the kernel shows up automatically in
-# Sherlock OnDemand's Jupyter app for anyone who has sourced this file, no
-# per-user kernel install step, and it updates automatically on every
-# deploy since it's read from `current`. See jupyter_kernel/README.md for
-# the OnDemand-sourcing caveat (needs to be verified: does OnDemand's
-# Jupyter batch job actually read ~/.bashrc before launching the server?).
 JUPYTER_KERNEL_DIR="$MOSEQ_ROOT_DIR/jupyter_kernel"
 case ":${JUPYTER_PATH:-}:" in
   *":$JUPYTER_KERNEL_DIR:"*) ;;
   *) export JUPYTER_PATH="$JUPYTER_KERNEL_DIR${JUPYTER_PATH:+:$JUPYTER_PATH}" ;;
 esac
-
-# Unlike Miniscope, Moseq does NOT export a global SBATCH_OUTPUT/SBATCH_ERROR
-# convention here. Logs live inside each project instead
-# (<project_root>/slurm_logs/), computed and passed as explicit sbatch
-# --output/--error CLI flags by submit_moseq.py's _log_flags() -- see that
-# file's docstring. (A stray SBATCH_OUTPUT from Miniscope's env_setup.sh
-# being sourced in the same shell can't break this: Slurm's precedence is
-# command-line flag > environment variable > #SBATCH directive, and we
-# always pass --output/--error as actual command-line flags.)
 
 # Short wrapper, same shape as apptainer_python for Miniscope.
 apptainer_python() {

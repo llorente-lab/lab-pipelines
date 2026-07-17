@@ -15,14 +15,24 @@
 # scrontab -- those are separate, smaller-audience concerns (see the
 # top-level README's "Adding a new pipeline" / one-time deploy setup
 # sections) that most lab members never need to think about.
+#
+# Manifest-driven, same as cli/run: reads cli/pipelines.yaml (via
+# cli/manifest.sh) and checks/wires up every listed pipeline generically,
+# rather than hardcoding a block per pipeline here. Adding a third pipeline
+# means adding one entry to cli/pipelines.yaml -- this file doesn't need
+# to change.
 
 set -uo pipefail  # deliberately not -e: a failed check should still let
                    # later checks run and report, not abort the whole script
 
+SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MANIFEST="$SETUP_DIR/pipelines.yaml"
 PIPELINES_ROOT="${PIPELINES_ROOT:-${GROUP_HOME:-$HOME}/pipelines}"
-MINISCOPE_ENV_SETUP_LINE="source $PIPELINES_ROOT/current/miniscope/common/env_setup.sh"
-MOSEQ_ENV_SETUP_LINE="source $PIPELINES_ROOT/current/moseq/common/env_setup.sh"
+REPO_ROOT="$PIPELINES_ROOT/current"
 BASHRC="$HOME/.bashrc"
+
+# shellcheck disable=SC1091
+source "$SETUP_DIR/manifest.sh"
 
 PASS=0
 FAIL=0
@@ -45,43 +55,48 @@ check "\$GROUP_HOME is set" '[ -n "${GROUP_HOME-}" ]'
 check "\$GROUP_HOME/pipelines is readable (illorent group access)" '[ -r "${GROUP_HOME-/nonexistent}/pipelines" ]'
 check "deployed pipeline tree exists (\$PIPELINES_ROOT/current)" '[ -e "$PIPELINES_ROOT/current" ]'
 check "apptainer is on \$PATH" 'command -v apptainer >/dev/null 2>&1'
-
-if [ -e "$PIPELINES_ROOT/current" ]; then
-  ENV_FILE="$PIPELINES_ROOT/current/miniscope/common/env_setup.sh"
-  if [ -f "$ENV_FILE" ]; then
-    # Source it in a subshell just to read SIF/RCLONE_CONFIG without
-    # polluting this script's own environment or re-running its side effects
-    # (mkdir, echo) twice.
-    eval "$(bash -c "source '$ENV_FILE' >/dev/null 2>&1; echo SIF=\$SIF; echo RCLONE_CONFIG=\$RCLONE_CONFIG")"
-    check "miniscope container image exists (\$SIF)" '[ -f "$SIF" ]'
-    check "rclone config exists (\$RCLONE_CONFIG)" '[ -f "$RCLONE_CONFIG" ]'
-  fi
-
-  MOSEQ_ENV_FILE="$PIPELINES_ROOT/current/moseq/common/env_setup.sh"
-  if [ -f "$MOSEQ_ENV_FILE" ]; then
-    eval "$(bash -c "source '$MOSEQ_ENV_FILE' >/dev/null 2>&1; echo MOSEQ_SIF=\$MOSEQ_SIF")"
-    check "moseq container image exists (\$MOSEQ_SIF)" '[ -f "$MOSEQ_SIF" ]'
-  fi
-fi
+check "pipeline manifest exists (cli/pipelines.yaml)" '[ -f "$MANIFEST" ]'
 
 echo ""
 
-# --- wire up .bashrc, idempotently --------------------------------------
+# --- per-pipeline checks + .bashrc wiring, driven by the manifest ----------
 
-if grep -qF "$MINISCOPE_ENV_SETUP_LINE" "$BASHRC" 2>/dev/null; then
-  echo "PASS - ~/.bashrc already sources miniscope env_setup.sh, nothing to add"
-else
-  echo "$MINISCOPE_ENV_SETUP_LINE" >> "$BASHRC"
-  echo "ADDED - appended to ~/.bashrc:"
-  echo "    $MINISCOPE_ENV_SETUP_LINE"
+if [ -f "$MANIFEST" ]; then
+  while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var; do
+    [ -z "$p_name" ] && continue
+    case "$p_name" in \#*) continue ;; esac
+
+    env_setup_line="source $REPO_ROOT/$p_env_relpath"
+
+    if [ -e "$PIPELINES_ROOT/current" ]; then
+      env_file="$REPO_ROOT/$p_env_relpath"
+      if [ -f "$env_file" ]; then
+        # Source it in a subshell just to read the container-image var
+        # without polluting this script's own environment or re-running
+        # its side effects (mkdir, echo) twice.
+        eval "$(bash -c "source '$env_file' >/dev/null 2>&1; echo VAL=\$$p_sif_var")"
+        check "$p_name container image exists (\$$p_sif_var)" '[ -f "$VAL" ]'
+      else
+        echo "SKIP - $p_name env_setup.sh not found at $env_file (deploy incomplete?)"
+      fi
+    fi
+
+    if grep -qF "$env_setup_line" "$BASHRC" 2>/dev/null; then
+      echo "PASS - ~/.bashrc already sources $p_name env_setup.sh, nothing to add"
+    else
+      echo "$env_setup_line" >> "$BASHRC"
+      echo "ADDED - appended to ~/.bashrc:"
+      echo "    $env_setup_line"
+    fi
+    echo ""
+  done < <(load_pipeline_manifest "$MANIFEST")
 fi
 
-if grep -qF "$MOSEQ_ENV_SETUP_LINE" "$BASHRC" 2>/dev/null; then
-  echo "PASS - ~/.bashrc already sources moseq env_setup.sh, nothing to add"
-else
-  echo "$MOSEQ_ENV_SETUP_LINE" >> "$BASHRC"
-  echo "ADDED - appended to ~/.bashrc:"
-  echo "    $MOSEQ_ENV_SETUP_LINE"
+# rclone config is shared across every pipeline (same $RCLONE_CONFIG
+# default in every env_setup.sh), so it's only worth checking once here
+# rather than per-pipeline above.
+if [ -n "${GROUP_HOME-}" ]; then
+  check "rclone config exists (\$GROUP_HOME/rclone/rclone.conf)" '[ -f "$GROUP_HOME/rclone/rclone.conf" ]'
 fi
 
 echo ""

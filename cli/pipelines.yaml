@@ -1,0 +1,41 @@
+# Pipeline manifest read by cli/run and cli/setup.sh (via cli/manifest.sh's
+# purpose-built reader -- not a general YAML parser, see that file). One
+# entry per pipeline. Blank lines and comment lines are ignored.
+#
+#   name               subcommand name (`run <name> ...`). Also used by
+#                       naming convention to find this pipeline's functions
+#                       in cli/pipelines/<module>: cmd_<name>,
+#                       cmd_logs_<name>, cmd_queue_<name> (optional),
+#                       <name>_job_names, <name>_list_entry, <name>_help.
+#   module              filename under cli/pipelines/ defining those
+#                       functions.
+#   env_setup           path to this pipeline's env_setup.sh, relative to
+#                       the repo root. Sourced automatically by both
+#                       cli/run and cli/setup.sh -- `run` bootstraps its
+#                       own environment on every invocation, it doesn't
+#                       depend on the caller's shell having sourced
+#                       anything first (though ~/.bashrc sourcing is still
+#                       wired up by setup.sh too, for apptainer_* functions
+#                       to be available in your own interactive shell).
+#   required_env_var    an env var this pipeline's env_setup.sh exports,
+#                       checked right after sourcing as a sanity gate --
+#                       catches a missing/broken env_setup.sh with one
+#                       clear error instead of a confusing failure later.
+#   sif_var              the container image path variable, checked by
+#                       cli/setup.sh.
+#
+# Adding a new pipeline: add one entry here, drop cli/pipelines/<name>.sh
+# defining the functions above, done -- no other file needs to change.
+
+pipelines:
+  - name: miniscope
+    module: miniscope.sh
+    env_setup: miniscope/common/env_setup.sh
+    required_env_var: CAIMAN_ROOT_DIR
+    sif_var: SIF
+
+  - name: moseq
+    module: moseq.sh
+    env_setup: moseq/common/env_setup.sh
+    required_env_var: MOSEQ_PROJECTS_BASE
+    sif_var: MOSEQ_SIF
