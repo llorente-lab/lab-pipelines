@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=miniscope_multisession
+#SBATCH --job-name=multisession_registration
 #SBATCH --partition=illorent
 #SBATCH --exclusive
 #SBATCH --nodes=1

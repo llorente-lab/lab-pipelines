@@ -88,7 +88,7 @@ export SBATCH_ERROR="$SCRATCH/logs/%x/%j.err"
 # miniscope_multisession.
 mkdir -p "$SCRATCH/logs/motion_correction" "$SCRATCH/logs/cnmfe" \
          "$SCRATCH/logs/caiman_master" "$SCRATCH/logs/caiman_pipeline_test" \
-         "$SCRATCH/logs/miniscope_multisession" \
+         "$SCRATCH/logs/multisession_registration" \
          "$SCRATCH/logs/queue" 2>/dev/null || true
 
 # Short wrapper: `apptainer_python foo.py args...` instead of the full
