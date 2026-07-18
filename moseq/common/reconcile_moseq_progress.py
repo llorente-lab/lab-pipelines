@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from moseq2_app.gui.progress import generate_intital_progressfile
+from moseq2_app.gui.progress import generate_initial_progressfile
 
 
 def get_progress(project_root: str) -> dict:
@@ -50,7 +50,7 @@ def get_progress(project_root: str) -> dict:
     prev_cwd = os.getcwd()
     try:
         os.chdir(root)
-        return generate_intital_progressfile(filename=progress_file)
+        return generate_initial_progressfile(filename=progress_file)
     finally:
         os.chdir(prev_cwd)
 

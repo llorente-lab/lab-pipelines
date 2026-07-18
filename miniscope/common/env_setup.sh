@@ -84,9 +84,11 @@ export SBATCH_OUTPUT="$SCRATCH/logs/%x/%j.out"
 export SBATCH_ERROR="$SCRATCH/logs/%x/%j.err"
 
 # Slurm won't create these directories itself -- job names as of this
-# pipeline: motion_correction, cnmfe, caiman_master, caiman_pipeline_test.
+# pipeline: motion_correction, cnmfe, caiman_master, caiman_pipeline_test,
+# miniscope_multisession.
 mkdir -p "$SCRATCH/logs/motion_correction" "$SCRATCH/logs/cnmfe" \
          "$SCRATCH/logs/caiman_master" "$SCRATCH/logs/caiman_pipeline_test" \
+         "$SCRATCH/logs/miniscope_multisession" \
          "$SCRATCH/logs/queue" 2>/dev/null || true
 
 # Short wrapper: `apptainer_python foo.py args...` instead of the full

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Moseq pipeline wiring for `run` (see cli/run, cli/pipelines.conf).
+# Moseq pipeline wiring for `run` (see cli/run, cli/pipelines.yaml).
 # Sourced by cli/run, not executed directly -- defines cmd_moseq,
 # cmd_logs_moseq, moseq_job_names, moseq_list_entry, moseq_help (no
 # cmd_queue_moseq: the dry run lives at `run moseq queue <name>`, a

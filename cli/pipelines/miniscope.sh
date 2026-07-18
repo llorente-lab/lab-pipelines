@@ -54,8 +54,21 @@ cmd_miniscope() {
     master)
       sbatch "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
       ;;
+    multisession)
+      local mouse="" force_flag=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --mouse) mouse="$2"; shift 2 ;;
+          --force) force_flag="--force"; shift ;;
+          *) echo "run miniscope multisession: unrecognized argument '$1'" >&2; exit 1 ;;
+        esac
+      done
+      # shellcheck disable=SC2086
+      sbatch "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
+        ${mouse:+--mouse "$mouse"} $force_flag
+      ;;
     "")
-      echo "run: missing stage -- try 'motion-correction', 'cnmfe', or 'master'" >&2
+      echo "run: missing stage -- try 'motion-correction', 'cnmfe', 'master', or 'multisession'" >&2
       exit 1
       ;;
     *)
@@ -67,8 +80,22 @@ cmd_miniscope() {
 
 cmd_logs_miniscope() {
   local stage="${1-}"; shift || true
+
+  if [ "$stage" = "multisession" ]; then
+    local log_dir="$SCRATCH/logs/multisession_registration"
+    local latest
+    latest="$(ls -t "$log_dir"/*.out 2>/dev/null | head -n1 || true)"
+    if [ -z "$latest" ]; then
+      echo "run logs miniscope: no multisession log found under $log_dir yet -- has 'run miniscope multisession' been submitted?" >&2
+      exit 1
+    fi
+    echo "run logs: tailing $latest (Ctrl-C to stop)"
+    tail -F "$latest"
+    return
+  fi
+
   if [ "$stage" != "motion-correction" ] && [ "$stage" != "cnmfe" ]; then
-    echo "run logs miniscope: stage must be 'motion-correction' or 'cnmfe'" >&2
+    echo "run logs miniscope: stage must be 'motion-correction', 'cnmfe', or 'multisession'" >&2
     exit 1
   fi
   parse_session_flags "$@"
@@ -120,7 +147,7 @@ cmd_queue_miniscope() {
 }
 
 miniscope_job_names() {
-  echo "motion_correction,cnmfe,caiman_master,caiman_pipeline_test"
+  echo "motion_correction,cnmfe,caiman_master,caiman_pipeline_test,multisession_registration"
 }
 
 miniscope_list_entry() {
@@ -129,6 +156,7 @@ miniscope
   motion-correction   run miniscope motion-correction [--mouse M [--date D --tp T]]
   cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]]
   master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E)
+  multisession            run miniscope multisession [--mouse M] [--force]
 EOF
 }
 
@@ -137,23 +165,34 @@ miniscope_help() {
   run miniscope motion-correction [--mouse M [--date D --tp T]]
   run miniscope cnmfe             [--mouse M [--date D --tp T]]
   run miniscope master
+  run miniscope multisession          [--mouse M] [--force]
   run queue miniscope [--mouse M]
-  run logs miniscope <stage> --mouse M --date D --tp T
+  run logs miniscope <stage> [--mouse M --date D --tp T]
 
 Granularity for motion-correction/cnmfe (matches the underlying .sbatch):
   no flags               full sweep, reconciliation-driven
   --mouse M              everything reconciliation finds for that mouse
   --mouse M --date D --tp T   exactly one session, runs directly
 
+`run miniscope multisession` runs CaImAn multisession registration across all
+CNMF-E sessions for one or all mice. Finds model files from Drive, aligns
+spatial footprints across sessions, and saves a single .joblib per mouse
+back to gdrive:Miniscope/AnalyzedData/<mouse>/multisession_registration.joblib.
+Skips mice that already have a result unless --force is given. Warns but
+continues if not all sessions for a mouse have been modeled yet.
+
 `run queue miniscope` is a dry run -- shows exactly which sessions
 reconciliation currently thinks need motion correction or are ready for
-CNMF-E, without submitting anything. Same underlying check
-master_pipeline.sbatch itself uses before it runs anything for real.
+CNMF-E, without submitting anything.
 
 Examples:
   run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
   run miniscope motion-correction --mouse VK_20250101_a
   run miniscope motion-correction
+  run miniscope multisession --mouse VK_20250101_a
+  run miniscope multisession
+  run miniscope multisession --force
   run logs miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
+  run logs miniscope multisession
 EOF
 }
