@@ -1,64 +1,109 @@
-# Moseq Jupyter kernel (Apptainer-backed)
+# MoSeq2 Jupyter Environment on Sherlock
 
-This directory registers a Jupyter kernelspec, "MoSeq2 (Apptainer)", that
-lets Sherlock OnDemand's standard Jupyter app run notebook cells inside the
-Moseq container, without OnDemand needing any custom app configuration.
+This directory contains the Jupyter infrastructure for running MoSeq2 pipelines
+via Sherlock OnDemand's "Jupyter Notebook" app. There are **two separate
+Python environments** involved — this is the single most important thing to
+understand before touching anything here.
 
-## How it works
+## The two environments
 
-- `kernels/moseq2-apptainer/kernel.json` tells Jupyter to launch the kernel
-  process via `moseq_kernel_wrapper.sh -f {connection_file}` instead of a
-  bare `python`. **The nesting matters**: Jupyter's kernel discovery looks
-  for `<dir>/kernels/<name>/kernel.json` under each `JUPYTER_PATH` entry,
-  not a bare `kernel.json` directly in the directory itself. An earlier
-  version of this had `kernel.json` sitting directly in `jupyter_kernel/`
-  and `jupyter kernelspec list` silently ignored it, no error, it just
-  never appeared. `deploy_check.sh` now checks the file at its correct
-  nested path specifically to catch a regression of this.
-- The wrapper `exec`s `apptainer exec ... python -m ipykernel_launcher`,
-  so only the kernel (the process executing your code cells) runs inside
-  the container. The outer Jupyter server, notebook UI, auth token, and
-  port forwarding are all handled by OnDemand exactly as it already does
-  for any other kernel, we're not replacing any of that.
-- `common/env_setup.sh` adds this directory (`jupyter_kernel/`, the parent
-  of `kernels/`) to `JUPYTER_PATH`, which is how Jupyter's kernel discovery
-  finds it. Because this whole directory is deployed through the normal
-  GitOps `current` symlink, kernel updates (new image version, wrapper
-  script changes) apply automatically on the next deploy, no per-user
-  re-registration.
+1. **The kernel** — runs *inside* the Apptainer container at `$MOSEQ_SIF`.
+   This executes your actual notebook code: `import moseq2_model`, PCA/model
+   training, etc. Launched via `moseq_kernel_wrapper.sh`, registered as the
+   "MoSeq2 (Apptainer)" kernel.
 
-## Open question, needs verification on Sherlock
+2. **The server** — runs on the *host*, using Sherlock's system Python
+   (selected via the OnDemand form's "Python version" field, currently
+   Python 3.9). This serves the notebook web page itself: the HTML, static
+   JS files, and websocket connections your browser talks to. It has
+   nothing to do with the container.
 
-Jupyter kernels inherit the environment of the server process that spawns
-them. That means `MOSEQ_SIF`, `JUPYTER_PATH`, `RCLONE_CONFIG`, etc. all need
-to already be exported in the shell OnDemand uses to start the Jupyter
-server, which depends on `~/.bashrc` (or wherever `env_setup.sh` is sourced
-from, per `cli/setup.sh`) actually running before that server starts.
+Widget rendering (`ipywidgets`, `qgrid`, `jupyter_bokeh`) requires **both**
+environments to have compatible, correctly-enabled extensions — the kernel
+side sends widget state over the comm channel, but the *server* is what
+actually serves the JS that renders it in your browser. If widgets stop
+rendering, check the server environment first (`jupyter-server-env/`,
+below) — it's the one people forget about, since the "Python version"
+dropdown in the OnDemand form is easy to miss.
 
-Some OnDemand launch scripts run as non-interactive/non-login shells and
-skip `.bashrc` entirely. **Not yet confirmed which behavior Sherlock's
-Jupyter app has.**
+## Why classic Notebook, not JupyterLab
 
-To check: launch a plain OnDemand Jupyter session, open a terminal inside
-it (or a notebook cell running `!echo $MOSEQ_SIF` / `!echo $PATH`), and
-confirm `MOSEQ_SIF` is set and `cli/` is on `PATH`. If it's empty:
-- Check whether OnDemand's Jupyter app has a "Custom environment setup"
-  or "Extra environment variables" field in its submission form, some
-  OnDemand app configs let you source a script or set vars directly
-  there rather than relying on shell startup files.
-- Failing that, MOSEQ_SIF could be hardcoded directly into
-  `moseq_kernel_wrapper.sh` instead of read from the environment, at the
-  cost of losing the single-source-of-truth-in-env_setup.sh property.
+`qgrid` (used throughout `moseq2-app`'s GUI widgets) has no JupyterLab/
+labextension build — it only works via classic Notebook's `nbextension`
+system. `notebook<7` is pinned in both environments below for this reason.
+If `qgrid` is ever dropped in favor of a maintained alternative
+(`ipydatagrid`, `itables`), this constraint goes away and JupyterLab
+becomes viable again.
 
-## Manual test (bypassing OnDemand entirely)
+## Files in this directory
 
-From a Sherlock shell with `env_setup.sh` sourced:
+- `moseq_kernel_wrapper.sh` — launches the kernel inside the container.
+  Referenced by `kernels/moseq2-apptainer/kernel.json`.
+- `jupyter-server-env/` — venv for the *server* (see above). Built with
+  Python 3.9 to match Sherlock's OnDemand Jupyter app's "Python version"
+  setting. See `recreate_jupyter_server_env.sh` to rebuild it from scratch.
+- `recreate_jupyter_server_env.sh` — recreates `jupyter-server-env/` from
+  nothing. Run this if the venv is ever corrupted, needs relocating, or
+  needs a Python version bump.
+
+## Setting up a new OnDemand session
+
+In the Jupyter Notebook app launch form, set **"Custom initialization
+commands"** to:
 
 ```bash
-jupyter kernelspec list          # should show "moseq2-apptainer" or similar
-echo $MOSEQ_SIF                  # should not be empty
-$MOSEQ_ROOT_DIR/jupyter_kernel/moseq_kernel_wrapper.sh -f /dev/null
-# expected: fails fast with a connection-file error from ipykernel itself
-# (proves apptainer exec + ipykernel_launcher actually runs), not a
-# "command not found" or "MOSEQ_SIF not set" error.
+source $GROUP_HOME/moseq/jupyter_kernel/jupyter-server-env/bin/activate
 ```
+
+Python version: **3.9** (must match what `jupyter-server-env` was built
+with — see `recreate_jupyter_server_env.sh` if this ever changes).
+
+Launch a **new** session after any change here — an existing running
+session will not pick up initialization command changes.
+
+## Known-good pinned versions (server-side venv)
+
+These pins exist for specific, non-obvious reasons — don't casually bump
+them:
+
+| Package | Constraint | Why |
+|---|---|---|
+| `notebook` | `<7` | qgrid needs classic-notebook nbextensions, not labextensions |
+| `ipywidgets` | `<8.0.0` | qgrid was never updated for ipywidgets 8's API |
+| `bokeh` | `>=2.4.0,<3.0.0` | bokeh 3.x's enum code crashes under Python 3.9's `typing` |
+| `jupyter_bokeh` | `>=2.0.3,<3.0.0` | jupyter_bokeh 3+ requires bokeh 3.x's `bokeh.core.serialization` |
+| `pandas` | `<2.2` | pandas >=2.2 has no prebuilt wheel for Python 3.9, fails to compile on login nodes |
+| `numpy` | `<2.0.0` | pandas 2.1.x requires numpy <2 |
+| `ipykernel` | `<6.30` | newer ipykernel wants `jupyter-client>=8`, conflicts with notebook<7's `jupyter-client<8` pin |
+| `jupyter-client` | `<8,>=5.3.4` | pulled in by `notebook<7`; must stay <8 |
+
+## Debugging widget rendering issues
+
+If widgets show as text (`IntSlider(value=0)`) instead of rendering:
+
+1. Open browser DevTools → Console, look for `404` on `.../nbextensions/...`
+   or `Class jupyter.widget not found in registry`.
+2. If found: the **server** environment's nbextensions aren't active. Check
+   `jupyter-server-env` was actually sourced (`which jupyter` inside an
+   OnDemand terminal should point into `jupyter-server-env/bin/`).
+3. `jupyter nbextension list` (with `jupyter-server-env` active) should
+   show `jupyter_bokeh`, `qgrid`, `jupyter-js-widgets`, and
+   `nbextensions_configurator` all `enabled` / `Validating: OK`.
+4. If missing/broken, see `recreate_jupyter_server_env.sh`.
+5. Remember: kernel restarts do **not** reload the browser page. A stale
+   nbextension config requires a full page reload (or new session) to
+   take effect — kernel-only restarts will not fix it.
+
+## Kernel-side notes
+
+- `kernels/moseq2-apptainer/kernel.json` tells Jupyter to launch the kernel
+  via `moseq_kernel_wrapper.sh -f {connection_file}`. The nesting matters:
+  Jupyter's kernel discovery looks for `<dir>/kernels/<name>/kernel.json`
+  under each `JUPYTER_PATH` entry. `deploy_check.sh` checks this path
+  specifically to catch regressions.
+- `common/env_setup.sh` adds this directory to `JUPYTER_PATH` so kernel
+  updates apply automatically on the next deploy via the `current` symlink.
+- Kernels inherit the server process's environment, so `MOSEQ_SIF` must be
+  set before the Jupyter server starts. The OnDemand "Custom initialization
+  commands" field (above) handles this via the server-env activate line,
+  which in turn sources `env_setup.sh` indirectly through `~/.bashrc`.
