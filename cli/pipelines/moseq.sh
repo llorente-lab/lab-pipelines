@@ -304,10 +304,11 @@ print('  ' + ', '.join(needed) if needed else '  (none -- every session extracte
       apptainer_python -c "
 import sys
 sys.path.insert(0, '$MOSEQ_COMMON_DIR')
-from reconcile_moseq_progress import pca_is_done, modeling_is_done, best_model_is_selected
-print('  pca done:            ', pca_is_done('$project_dir'))
-print('  modeling done:       ', modeling_is_done('$project_dir'))
-print('  best model selected: ', best_model_is_selected('$project_dir'))
+from reconcile_moseq_progress import get_progress, pca_is_done, modeling_is_done, best_model_is_selected
+progress = get_progress('$project_dir')
+print('  pca done:            ', pca_is_done('$project_dir', progress))
+print('  modeling done:       ', modeling_is_done('$project_dir', progress))
+print('  best model selected: ', best_model_is_selected('$project_dir', progress))
 "
       ;;
     "")

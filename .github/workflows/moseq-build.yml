@@ -35,8 +35,8 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: athp18
+          password: ${{ secrets.MOSEQ_TOKEN }}
 
       # Build for the amd64 Sherlock target, but load it into the local
       # Docker daemon instead of pushing -- we want a chance to fail the

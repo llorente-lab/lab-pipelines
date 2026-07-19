@@ -64,8 +64,22 @@ RUN pip install --no-cache-dir --no-build-isolation \
 RUN pip install --no-cache-dir --no-build-isolation --no-deps \
     "git+https://github.com/llorente-lab/moseq2-model.git@main"
 
-# 9. moseq2-app external deps not yet covered by the packages above
+# 9. moseq2-app — all deps satisfied; --no-deps skips internal git+https pulls
+RUN pip install --no-cache-dir --no-build-isolation --no-deps \
+    "git+https://github.com/llorente-lab/moseq2-app.git@main"
+
+# 10. moseq2-app external deps not yet covered by the packages above.
+#
+# notebook<7 is pinned deliberately: qgrid (used throughout moseq2-app's
+# GUI widgets) has no JupyterLab/labextension build and only works via
+# classic Notebook's nbextension system. notebook>=7 is JupyterLab 4 under
+# the hood, `jupyter nbextension` doesn't exist there, and qgrid silently
+# fails to render (falls back to a text repr) rather than erroring, which
+# made this hard to catch. See: https://github.com/jupyterlab/jupyterlab/issues/12977
+
 RUN pip install --no-cache-dir \
+    "notebook<7" \
+    "jupyter_nbextensions_configurator" \
     "fastparquet>=0.4.1" \
     "holoviews>=1.14.7" \
     "ipython>=7.14.0" \
@@ -77,9 +91,13 @@ RUN pip install --no-cache-dir \
     "plotly>=4.14.3" \
     "qgrid>=1.3.1"
 
-# 10. moseq2-app — all deps satisfied; --no-deps skips internal git+https pulls
-RUN pip install --no-cache-dir --no-build-isolation --no-deps \
-    "git+https://github.com/llorente-lab/moseq2-app.git@main"
+# Activate classic-notebook extensions. Must run after the installs above
+# (needs widgetsnbextension/qgrid/jupyter_bokeh present) and after the
+RUN jupyter nbextension install --py jupyter_nbextensions_configurator --sys-prefix && \
+    jupyter nbextension enable --py --sys-prefix widgetsnbextension && \
+    jupyter nbextension enable --py --sys-prefix qgrid && \
+    jupyter nbextension install --sys-prefix --symlink --py jupyter_bokeh && \
+    jupyter nbextension enable jupyter_bokeh --py --sys-prefix
 
 # install np and headless cv python i
 RUN pip uninstall -y opencv-python && \
@@ -92,11 +110,5 @@ import moseq2_extract, moseq2_pca, moseq2_model, moseq2_viz, moseq2_app; \
 import cv2; \
 print('OK, cv2', cv2.__version__)"
 
-# Jupyter notebook server. Deliberately NOT hardcoding an empty
-# token/password here: Sherlock's Open OnDemand Jupyter app manages its own
-# token and reverse-proxy auth and expects Jupyter to respect it, disabling
-# auth in the image would fight that. For manual/local testing, run with
-# `--NotebookApp.token=''` as an override on the docker/apptainer command
-# line instead of baking it into the image.
 EXPOSE 8888
 CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--no-browser"]

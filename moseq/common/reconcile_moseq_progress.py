@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from moseq2_app.gui.progress import generate_initial_progressfile
+from moseq2_app.gui.progress import generate_intital_progressfile as generate_initial_progressfile
 
 
 def get_progress(project_root: str) -> dict:
@@ -55,12 +55,13 @@ def get_progress(project_root: str) -> dict:
         os.chdir(prev_cwd)
 
 
-def pca_is_done(project_root: str) -> bool:
-    progress = get_progress(project_root)
+def pca_is_done(project_root: str, progress: dict | None = None) -> bool:
+    if progress is None:
+        progress = get_progress(project_root)
     return bool(progress.get("scores_path"))
 
 
-def modeling_is_done(project_root: str) -> bool:
+def modeling_is_done(project_root: str, progress: dict | None = None) -> bool:
     """
     True once at least one model has been trained (kappa-scan or a single
     fit), i.e. base_model_path is populated and non-empty. This is
@@ -70,7 +71,8 @@ def modeling_is_done(project_root: str) -> bool:
     one); the real fields are base_model_path (folder of all trained
     models) and model_session_path (the one model picked for analysis).
     """
-    progress = get_progress(project_root)
+    if progress is None:
+        progress = get_progress(project_root)
     base_model_path = progress.get("base_model_path")
     if not base_model_path:
         return False
@@ -78,12 +80,13 @@ def modeling_is_done(project_root: str) -> bool:
     return model_dir.is_dir() and any(model_dir.glob("*.p"))
 
 
-def best_model_is_selected(project_root: str) -> bool:
+def best_model_is_selected(project_root: str, progress: dict | None = None) -> bool:
     """
     True once a specific model has been chosen for downstream analysis
     (progress.yaml's model_session_path), e.g. after "Get Best Model Fit"
     has run. A project can have modeling_is_done() == True (models were
     trained) while this is still False (nobody picked one yet).
     """
-    progress = get_progress(project_root)
+    if progress is None:
+        progress = get_progress(project_root)
     return bool(progress.get("model_session_path"))
