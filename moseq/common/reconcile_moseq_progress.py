@@ -33,7 +33,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from moseq2_app.gui.progress import generate_intital_progressfile as generate_initial_progressfile
+from moseq2_app.gui.progress import generate_initial_progressfile
 
 
 def get_progress(project_root: str) -> dict:
