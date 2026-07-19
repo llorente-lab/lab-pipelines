@@ -24,7 +24,7 @@ if [ -d "$ENV_DIR" ]; then
 fi
 
 echo "Creating venv at $ENV_DIR ..."
-python3 -m venv "$ENV_DIR"
+python3 -m venv --copies "$ENV_DIR"
 source "$ENV_DIR/bin/activate"
 
 echo "Upgrading pip ..."
