@@ -52,8 +52,11 @@ _record_status() {
 trap _record_status EXIT
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "config file not found: $CONFIG_FILE -- generating a default one (same as 'run moseq queue <name>' does)" >&2
-  apptainer_exec moseq2-extract generate-config --output-file "$CONFIG_FILE"
+  echo "config file not found: $CONFIG_FILE -- generating one now" >&2
+  # --camera-type azure: extraction param defaults are set for an Azure
+  # Kinect camera, not moseq2-extract's default (k2/Kinect v2) -- Azure is
+  # what this lab actually records with.
+  apptainer_exec moseq2-extract generate-config --output-file "$CONFIG_FILE" --camera-type azure
 fi
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK

@@ -57,6 +57,13 @@ check "deployed pipeline tree exists (\$PIPELINES_ROOT/current)" '[ -e "$PIPELIN
 check "apptainer is on \$PATH" 'command -v apptainer >/dev/null 2>&1'
 check "pipeline manifest exists (cli/pipelines.yaml)" '[ -f "$MANIFEST" ]'
 
+if command -v module >/dev/null 2>&1; then
+    module load python/3.9.0
+    module load system git
+else
+    echo "WARN - environment modules are unavailable; could not load python/3.9.0 or system git"
+fi
+
 echo ""
 
 # --- per-pipeline checks + .bashrc wiring, driven by the manifest ----------

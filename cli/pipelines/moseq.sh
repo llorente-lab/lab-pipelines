@@ -2,10 +2,11 @@
 # Moseq pipeline wiring for `run` (see cli/run, cli/pipelines.yaml).
 # Sourced by cli/run, not executed directly -- defines cmd_moseq,
 # cmd_logs_moseq, moseq_job_names, moseq_list_entry, moseq_help (no
-# cmd_queue_moseq: the dry run lives at `run moseq queue <name>`, a
-# subcommand of cmd_moseq itself, since it needs a project name rather
-# than miniscope's --mouse-style filters -- structurally different shape,
-# so it doesn't fit the generic `run queue <pipeline>` convention).
+# cmd_queue_moseq: the dry-run status check lives at
+# `run moseq check-progress <name>`, a subcommand of cmd_moseq itself,
+# since it needs a project name rather than miniscope's --mouse-style
+# filters -- structurally different shape, so it doesn't fit the generic
+# `run queue <pipeline>` convention).
 
 MOSEQ_PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
 [ -d "$MOSEQ_PYTHON_MODULE_BIN" ] && PATH="$MOSEQ_PYTHON_MODULE_BIN:$PATH"
@@ -192,7 +193,7 @@ job_ids = submit_moseq.submit_extraction('$project_dir')
 if job_ids:
     print('submitted extraction jobs:', ', '.join(job_ids))
 else:
-    print('nothing to extract -- every session is already extracted (see run moseq queue $name)')
+    print('nothing to extract -- every session is already extracted (see run moseq check-progress $name)')
 "
       ;;
     aggregate)
@@ -290,31 +291,9 @@ print()
 print('note: modeling (kappa-scan / learn-model) is NOT chained -- run those separately once changepoints finishes.')
 "
       ;;
-    queue)
+    check-progress)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      if [ ! -f "$project_dir/config.yaml" ]; then
-        echo "config.yaml not found -- generating with azure settings, bg_roi_depth_range=[600,700]..."
-        apptainer_python -c "
-import sys, subprocess
-import ruamel.yaml as yaml
-# Generate base config without --camera-type to avoid azure's internal
-# bg_roi_depth_range override (which forces [550,650] during extraction).
-# Apply azure-appropriate settings manually instead.
-subprocess.run(['moseq2-extract', 'generate-config', '--output-file', '$project_dir/config.yaml'], check=True)
-y = yaml.YAML()
-y.preserve_quotes = True
-with open('$project_dir/config.yaml') as f:
-    config = y.load(f)
-config['bg_roi_depth_range'] = [600, 700]
-config['spatial_filter_size'] = [5]
-config['tail_filter_size'] = [15, 15]
-config['crop_size'] = [120, 120]
-with open('$project_dir/config.yaml', 'w') as f:
-    y.dump(config, f)
-print('generated $project_dir/config.yaml')
-"
-      fi
       echo "sessions needing extraction:"
       moseq_python -c "
 from reconcile_moseq_extraction import sessions_needing_extraction
@@ -334,7 +313,7 @@ print('  best model selected: ', best_model_is_selected('$project_dir', progress
 "
       ;;
     "")
-      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', or 'queue'" >&2
+      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', or 'check-progress'" >&2
       exit 1
       ;;
     *)
@@ -405,7 +384,7 @@ moseq
   kappa-scan <name>   [--n-models N --scan-scale log|linear --min-kappa --max-kappa --num-iter]
   learn-model <name>  --kappa K [--num-iter --dest-name]  (final model fit)
   master <name>       chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints
-  queue <name>        dry run: what's left to do for this project
+  check-progress <name>  dry run: what's left to do for this project
 EOF
 }
 
@@ -422,7 +401,7 @@ moseq_help() {
   run moseq kappa-scan <project_name> [--n-models N --scan-scale S --min-kappa K --max-kappa K --num-iter N]
   run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME]
   run moseq master <project_name>
-  run moseq queue <project_name>
+  run moseq check-progress <project_name>
   run logs moseq <stage> <project_name>
 
 `run moseq init <name> [--source <gdrive_path>]` creates
@@ -465,8 +444,8 @@ not compute). `run moseq master <name>` chains extract -> aggregate ->
 pca-fit -> pca-apply -> changepoints via --dependency=afterok; kappa-scan/
 learn-model are deliberately NOT included in that chain (picking a kappa
 needs a decision between the scan and the final fit) -- run those two
-explicitly once changepoints finishes. `run moseq queue <name>` is a dry
-run showing what's left to do for one project (extraction status is
+explicitly once changepoints finishes. `run moseq check-progress <name>`
+is a dry run showing what's left to do for one project (extraction status is
 instant/host-side; PCA/modeling status needs the container and may take a
 moment). `run moseq logs <stage> <name>` (or `run logs moseq <stage>
 <name>`) tails that stage's most recent log under <project>/slurm_logs/.
