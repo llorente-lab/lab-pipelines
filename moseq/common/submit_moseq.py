@@ -66,6 +66,7 @@ Deferred, noted for later (not forgotten, just not needed yet):
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -142,9 +143,17 @@ def _dependency_flags(depends_on: list[str] | None) -> list[str]:
     return [f"--dependency=afterok:{':'.join(depends_on)}"]
 
 
+def _mail_flags() -> list[str]:
+    """--mail-type=FAIL if PIPELINE_NOTIFY_EMAIL is set; no-op otherwise."""
+    email = os.environ.get("PIPELINE_NOTIFY_EMAIL", "").strip()
+    if not email:
+        return []
+    return ["--mail-type=FAIL", f"--mail-user={email}"]
+
+
 def _sbatch_flags(project_root: str, stage: str, depends_on: list[str] | None) -> list[str]:
     """Every submit_* function's sbatch_flags is this same combination."""
-    return _log_flags(project_root, stage) + _dependency_flags(depends_on)
+    return _log_flags(project_root, stage) + _dependency_flags(depends_on) + _mail_flags()
 
 
 def submit_extraction(project_root: str, config_file: str | None = None) -> list[str]:

@@ -33,6 +33,18 @@ if [ -z "$PROJECT_ROOT" ]; then
 fi
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 
+_JOB_START="$(date -Iseconds)"
+_STATUS_FILE="$PROJECT_ROOT/status/kappa_scan.json"
+mkdir -p "$PROJECT_ROOT/status"
+_record_status() {
+  local rc=$?
+  local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
+  printf '{"stage":"kappa_scan","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
+    "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
+    "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
+}
+trap _record_status EXIT
+
 PCA_SCORES="$PROJECT_ROOT/_pca/pca_scores.h5"
 OUTPUT_DIR="$PROJECT_ROOT/models"
 INDEX_FILE="$PROJECT_ROOT/moseq2-index.yaml"

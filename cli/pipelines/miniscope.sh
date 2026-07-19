@@ -30,29 +30,36 @@ analyzed_base() {
 
 cmd_miniscope() {
   local stage="${1-}"; shift || true
+
+  # --mail-type=FAIL if PIPELINE_NOTIFY_EMAIL is set; no-op otherwise
+  local _mail_flags=()
+  if [ -n "${PIPELINE_NOTIFY_EMAIL:-}" ]; then
+    _mail_flags=("--mail-type=FAIL" "--mail-user=${PIPELINE_NOTIFY_EMAIL}")
+  fi
+
   case "$stage" in
     motion-correction)
       parse_session_flags "$@"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
-        sbatch "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
+        sbatch "${_mail_flags[@]}" "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        sbatch "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
+        sbatch "${_mail_flags[@]}" "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
       else
-        sbatch "$CAIMAN_MC_DIR/motion_correction.sbatch"
+        sbatch "${_mail_flags[@]}" "$CAIMAN_MC_DIR/motion_correction.sbatch"
       fi
       ;;
     cnmfe)
       parse_session_flags "$@"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
-        sbatch "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
+        sbatch "${_mail_flags[@]}" "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        sbatch "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
+        sbatch "${_mail_flags[@]}" "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
       else
-        sbatch "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
+        sbatch "${_mail_flags[@]}" "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
       fi
       ;;
     master)
-      sbatch "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
+      sbatch "${_mail_flags[@]}" "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
       ;;
     multisession)
       local mouse="" force_flag=""
@@ -64,7 +71,7 @@ cmd_miniscope() {
         esac
       done
       # shellcheck disable=SC2086
-      sbatch "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
+      sbatch "${_mail_flags[@]}" "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
         ${mouse:+--mouse "$mouse"} $force_flag
       ;;
     "")

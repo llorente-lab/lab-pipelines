@@ -28,6 +28,18 @@ CONFIG_FILE="${2:-$PROJECT_ROOT/config.yaml}"
 PCA_FILE_COMPONENTS="${3:-$PROJECT_ROOT/_pca/pca.h5}"
 PCA_FILE_SCORES="${4:-$PROJECT_ROOT/_pca/pca_scores.h5}"
 
+_JOB_START="$(date -Iseconds)"
+_STATUS_FILE="$PROJECT_ROOT/status/changepoints.json"
+mkdir -p "$PROJECT_ROOT/status"
+_record_status() {
+  local rc=$?
+  local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
+  printf '{"stage":"changepoints","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
+    "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
+    "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
+}
+trap _record_status EXIT
+
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK

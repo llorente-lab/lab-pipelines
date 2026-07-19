@@ -24,6 +24,18 @@ if [ -z "$PROJECT_ROOT" ]; then
 fi
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
 
+_JOB_START="$(date -Iseconds)"
+_STATUS_FILE="$PROJECT_ROOT/status/aggregate.json"
+mkdir -p "$PROJECT_ROOT/status"
+_record_status() {
+  local rc=$?
+  local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
+  printf '{"stage":"aggregate","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
+    "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
+    "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
+}
+trap _record_status EXIT
+
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
 export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
