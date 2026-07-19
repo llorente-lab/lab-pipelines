@@ -90,13 +90,13 @@ class TestSubmitExtraction(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_submits_one_job_per_incomplete_session(self):
-        # session_a: already extracted (should be skipped)
+    def test_submits_one_job_for_project_when_sessions_need_extraction(self):
+        # session_a: already extracted (should be skipped by batch-extract)
         proc_a = self.tmp / "session_a" / "proc"
         proc_a.mkdir(parents=True)
         (proc_a / "results_00.yaml").write_text("complete: true\n")
 
-        # session_b: not yet extracted (should get a job)
+        # session_b: not yet extracted
         session_b = self.tmp / "session_b"
         session_b.mkdir()
         (session_b / "metadata.json").write_text("{}")
@@ -105,14 +105,16 @@ class TestSubmitExtraction(unittest.TestCase):
 
         def fake_run(cmd, **kwargs):
             submitted_args.append(cmd)
-            return fake_sbatch_result(str(100 + len(submitted_args)))
+            return fake_sbatch_result("101")
 
         with mock.patch.object(subprocess, "run", side_effect=fake_run):
             job_ids = submit_moseq.submit_extraction(str(self.tmp))
 
         self.assertEqual(job_ids, ["101"])
         self.assertEqual(len(submitted_args), 1)
-        self.assertIn(str(session_b), submitted_args[0])
+        # one job for the whole project, not one per session
+        self.assertTrue(submitted_args[0][-1].endswith("extract.sbatch") or
+                        str(self.tmp.resolve()) in submitted_args[0])
 
     def test_no_jobs_when_everything_already_extracted(self):
         proc_a = self.tmp / "session_a" / "proc"

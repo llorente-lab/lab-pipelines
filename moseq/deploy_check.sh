@@ -26,7 +26,7 @@ python3 tests/test_reconcile_moseq_extraction.py
 # reconcile_moseq_extraction, no moseq2 packages -- fully testable here too.
 python3 tests/test_submit_moseq.py
 
-for f in extract/extract_session.sbatch extract/aggregate.sbatch \
+for f in extract/extract.sbatch extract/extract_session.sbatch extract/aggregate.sbatch \
          pca/pca_fit.sbatch pca/pca_apply.sbatch pca/compute_changepoints.sbatch \
          model/kappa_scan.sbatch model/learn_model.sbatch; do
   bash -n "$f"
