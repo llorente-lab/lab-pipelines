@@ -293,6 +293,28 @@ print('note: modeling (kappa-scan / learn-model) is NOT chained -- run those sep
     queue)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
+      if [ ! -f "$project_dir/config.yaml" ]; then
+        echo "config.yaml not found -- generating with azure settings, bg_roi_depth_range=[600,700]..."
+        apptainer_python -c "
+import sys, subprocess
+import ruamel.yaml as yaml
+# Generate base config without --camera-type to avoid azure's internal
+# bg_roi_depth_range override (which forces [550,650] during extraction).
+# Apply azure-appropriate settings manually instead.
+subprocess.run(['moseq2-extract', 'generate-config', '--output-file', '$project_dir/config.yaml'], check=True)
+y = yaml.YAML()
+y.preserve_quotes = True
+with open('$project_dir/config.yaml') as f:
+    config = y.load(f)
+config['bg_roi_depth_range'] = [600, 700]
+config['spatial_filter_size'] = [5]
+config['tail_filter_size'] = [15, 15]
+config['crop_size'] = [120, 120]
+with open('$project_dir/config.yaml', 'w') as f:
+    y.dump(config, f)
+print('generated $project_dir/config.yaml')
+"
+      fi
       echo "sessions needing extraction:"
       moseq_python -c "
 from reconcile_moseq_extraction import sessions_needing_extraction

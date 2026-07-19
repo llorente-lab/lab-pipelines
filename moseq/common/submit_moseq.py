@@ -149,26 +149,25 @@ def _sbatch_flags(project_root: str, stage: str, depends_on: list[str] | None) -
 
 def submit_extraction(project_root: str, config_file: str | None = None) -> list[str]:
     """
-    One sbatch job per session still needing extraction, per
-    reconcile_moseq_extraction.sessions_needing_extraction() -- the exact
-    same check `run moseq queue` reports, so this can never submit a
-    session reconciliation already considers done. Returns the list of
-    submitted job IDs (empty list if nothing needed extraction).
+    One sbatch job for the whole project (extract.sbatch loops over all
+    sessions needing extraction internally). Returns a single-element list
+    containing the job ID, or an empty list if nothing needs extraction.
+    The list return type is kept so submit_master()'s --dependency=afterok
+    chaining works unchanged.
     """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
-    script = EXTRACT_DIR / "extract_session.sbatch"
 
-    job_ids = []
-    for session_name in sessions_needing_extraction(project_root):
-        session_dir = str(Path(project_root) / session_name)
-        job_ids.append(
-            _sbatch(
-                script, session_dir, config_file,
-                sbatch_flags=_sbatch_flags(project_root, "extract", None),
-            )
+    if not sessions_needing_extraction(project_root):
+        return []
+
+    script = EXTRACT_DIR / "extract.sbatch"
+    return [
+        _sbatch(
+            script, project_root, config_file,
+            sbatch_flags=_sbatch_flags(project_root, "extract", None),
         )
-    return job_ids
+    ]
 
 
 def submit_aggregate(project_root: str, depends_on: list[str] | None = None) -> str:
