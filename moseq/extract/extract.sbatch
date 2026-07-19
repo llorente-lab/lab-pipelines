@@ -52,8 +52,8 @@ _record_status() {
 trap _record_status EXIT
 
 if [ ! -f "$CONFIG_FILE" ]; then
-  echo "config file not found: $CONFIG_FILE -- run 'run moseq queue <name>' first to generate it" >&2
-  exit 1
+  echo "config file not found: $CONFIG_FILE -- generating a default one (same as 'run moseq queue <name>' does)" >&2
+  apptainer_exec moseq2-extract generate-config --output-file "$CONFIG_FILE"
 fi
 
 export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
