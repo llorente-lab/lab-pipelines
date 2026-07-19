@@ -79,6 +79,46 @@ apptainer_exec() {
     "$MOSEQ_SIF" "$@"
 }
 
+# Dev-testing escape hatch: runs moseq2 console commands inside the real
+# container (same compiled numpy/sklearn/opencv ABI as production, unlike
+# the standalone venv in scripts/moseq_dev_venv_setup.sh) but with editable
+# package checkouts bind-mounted in and put first on PYTHONPATH, so Python
+# imports your locally edited source instead of the copy baked into the
+# image's site-packages. No container rebuild needed to test a source fix
+# -- edit under $MOSEQ_DEV_DIR, rerun, iterate. Once a fix is confirmed
+# here, commit + push it from that same checkout to the llorente-lab
+# fork's main branch (see scripts/moseq_dev_venv_setup.sh's header for the
+# same workflow, just against the container instead of a bare venv).
+#
+# Expects $MOSEQ_DEV_DIR (default ~/moseq-dev) to contain editable clones
+# named exactly like the packages themselves (moseq2-pca, moseq2-extract,
+# moseq2-model, moseq2-viz, moseq2-app, pyhsmm, pyhsmm-autoregressive,
+# pybasicbayes) -- only clone the ones you're actually editing, missing
+# ones are simply left out of PYTHONPATH and the container's own baked-in
+# copy is used for those instead.
+export MOSEQ_DEV_DIR="${MOSEQ_DEV_DIR:-$HOME/moseq-dev}"
+
+apptainer_dev_exec() {
+  local dev_pythonpath=""
+  local pkg
+  for pkg in moseq2-pca moseq2-model moseq2-viz moseq2-extract moseq2-app \
+             pyhsmm-autoregressive pyhsmm pybasicbayes; do
+    if [ -d "$MOSEQ_DEV_DIR/$pkg" ]; then
+      dev_pythonpath="${dev_pythonpath:+$dev_pythonpath:}/moseq-dev/$pkg"
+    fi
+  done
+  if [ -z "$dev_pythonpath" ]; then
+    echo "apptainer_dev_exec: no editable checkouts found under $MOSEQ_DEV_DIR -- falling back to the container's own packages (nothing bind-mounted)" >&2
+  fi
+  apptainer exec \
+    --bind "${SCRATCH:-/tmp},${GROUP_SCRATCH:-/tmp},${GROUP_HOME:-/tmp}" \
+    --bind "$MOSEQ_DEV_DIR:/moseq-dev" \
+    --env "RCLONE_CONFIG=${RCLONE_CONFIG}" \
+    --env "PYTHONNOUSERSITE=1" \
+    --env "PYTHONPATH=${dev_pythonpath}" \
+    "$MOSEQ_SIF" "$@"
+}
+
 alias moseq_cd='cd "$MOSEQ_ROOT_DIR"'
 
 echo "moseq env loaded: MOSEQ_SIF=$MOSEQ_SIF, RCLONE_CONFIG=$RCLONE_CONFIG" >&2
