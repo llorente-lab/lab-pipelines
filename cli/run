@@ -104,6 +104,7 @@ Other commands:
   run sync <src> <dst> [rclone flags...]
   run queue <pipeline> ...
   run list
+  run node [partition]        show live CPU/memory usage and jobs on illorent (or any partition)
 
 `run sync` is a thin, unopinionated wrapper around `rclone copy` -- no
 default excludes, no baked-in direction, just whichever two paths you give
@@ -193,7 +194,83 @@ cmd_list() {
     "${name}_list_entry"
     echo ""
   done
-  echo "other commands: status, logs, sync, queue, list -- run 'run --help' for details"
+  echo "other commands: status, logs, sync, queue, list, node -- run 'run --help' for details"
+}
+
+cmd_node() {
+  local partition="${1:-illorent}"
+
+  if ! sinfo -p "$partition" -h &>/dev/null || [ -z "$(sinfo -p "$partition" -h 2>/dev/null)" ]; then
+    echo "run node: partition '$partition' not found or unavailable" >&2
+    return 1
+  fi
+
+  # Use scontrol for accurate AllocMem/RealMemory (sinfo's %e can return N/A)
+  local nodelist cpu_alloc cpu_total mem_alloc_mb mem_total_mb
+  nodelist=$(sinfo -p "$partition" -h -o "%N" | head -1)
+  local first_node
+  first_node=$(sinfo -p "$partition" -h -o "%n" | head -1)
+  local sc
+  sc=$(scontrol show node "$first_node" 2>/dev/null)
+  cpu_alloc=$(echo "$sc" | grep -oP 'CPUAlloc=\K\d+')
+  cpu_total=$(echo "$sc" | grep -oP 'CPUTot=\K\d+')
+  mem_alloc_mb=$(echo "$sc" | grep -oP 'AllocMem=\K\d+')
+  mem_total_mb=$(echo "$sc" | grep -oP 'RealMemory=\K\d+')
+
+  local mem_alloc_gb=$(( mem_alloc_mb / 1024 ))
+  local mem_total_gb=$(( mem_total_mb / 1024 ))
+  local cpu_pct=$(( cpu_total > 0 ? cpu_alloc * 100 / cpu_total : 0 ))
+  local mem_pct=$(( mem_total_gb > 0 ? mem_alloc_gb * 100 / mem_total_gb : 0 ))
+
+  _draw_bar() {
+    local used=$1 total=$2 width=24
+    local filled=$(( total > 0 ? used * width / total : 0 ))
+    local i; for ((i=0; i<width; i++)); do
+      ((i < filled)) && printf '█' || printf '░'
+    done
+  }
+
+  echo ""
+  printf "  partition : %s\n"   "$partition"
+  printf "  node(s)   : %s\n"   "$nodelist"
+  echo   "  ──────────────────────────────────────────────"
+  printf "  CPUs      : %s  %d/%d (%d%%)\n" \
+    "$(_draw_bar "$cpu_alloc" "$cpu_total")" "$cpu_alloc" "$cpu_total" "$cpu_pct"
+  printf "  Memory    : %s  %d/%d GB (%d%%)\n" \
+    "$(_draw_bar "$mem_alloc_gb" "$mem_total_gb")" "$mem_alloc_gb" "$mem_total_gb" "$mem_pct"
+  echo   "  ──────────────────────────────────────────────"
+  echo ""
+
+  # All jobs on this partition (all users -- point is to see contention)
+  local hdr="  %-12s %-12s %-22s %5s %9s %10s\n"
+  local fmt="  %-12i %-12u %-22j %5C %9m %10M\n"
+
+  local running
+  running=$(squeue -p "$partition" -h -t RUNNING -o "$fmt" 2>/dev/null)
+  if [ -n "$running" ]; then
+    local n; n=$(echo "$running" | wc -l)
+    printf "  RUNNING (%d job%s)\n" "$n" "$([[ $n -eq 1 ]] && echo '' || echo 's')"
+    # shellcheck disable=SC2059
+    printf "$hdr" "JOBID" "USER" "NAME" "CPUS" "MEM" "RUNTIME"
+    printf '%s\n' "$running"
+  else
+    echo "  RUNNING  — none"
+  fi
+
+  echo ""
+
+  local pending
+  pending=$(squeue -p "$partition" -h -t PENDING -o "  %-12i %-12u %-22j %5C %9m\n" 2>/dev/null)
+  if [ -n "$pending" ]; then
+    local n; n=$(echo "$pending" | wc -l)
+    printf "  PENDING (%d job%s waiting)\n" "$n" "$([[ $n -eq 1 ]] && echo '' || echo 's')"
+    printf "  %-12s %-12s %-22s %5s %9s\n" "JOBID" "USER" "NAME" "CPUS" "MEM"
+    printf '%s\n' "$pending"
+  else
+    echo "  PENDING  — none"
+  fi
+
+  echo ""
 }
 
 # --- dispatch ----------------------------------------------------------
@@ -205,6 +282,7 @@ case "$cmd" in
   sync)         shift; cmd_sync "$@" ;;
   queue)        shift; cmd_queue "$@" ;;
   list)         shift; cmd_list "$@" ;;
+  node)         shift; cmd_node "$@" ;;
   -h|--help|"") usage ;;
   *)
     for name in "${PIPELINE_NAMES[@]}"; do

@@ -13,11 +13,10 @@
 
 tests:
   miniscope:
-    # Core import chain: catches broken CaImAn installs, the headless-opencv
-    # swap, and the numpy<2 ABI pin all at once.
+    # Core import chain: catches broken CaImAn installs and the headless-opencv swap.
     - >-
       python -c "import caiman, cv2, numpy, psutil, PIL, roifile, joblib, tqdm;
-      print('ok: caiman', getattr(caiman, '__version__', 'unknown'), '| cv2', cv2.__version__)"
+      print('ok: caiman', getattr(caiman, '__version__', 'unknown'), '| cv2', cv2.__version__, '| numpy', numpy.__version__)"
     # rclone is installed via apt, not pip -- verify it's on PATH since
     # motion_correct.py and sync.sh shell out to it directly.
     - rclone --version
