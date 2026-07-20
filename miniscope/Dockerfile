@@ -17,9 +17,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # and sync.sh calls it too, so it has to live inside the image, not just on the host.
 RUN curl https://rclone.org/install.sh | bash
 
-RUN echo "numpy<2" > /tmp/constraints.txt
-ENV PIP_CONSTRAINT=/tmp/constraints.txt
-
 # you check `pip freeze | grep -i caiman` in your ~/caiman venv on Sherlock
 ARG CAIMAN_REF=2956b1c1d9c4c5fdffbca38b2538924010308e2d
 RUN pip install --no-cache-dir git+https://github.com/flatironinstitute/CaImAn.git@${CAIMAN_REF}
