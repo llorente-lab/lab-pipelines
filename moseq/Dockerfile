@@ -4,8 +4,8 @@ USER root
 LABEL org.opencontainers.image.source=https://github.com/llorente-lab/moseq2-app
 LABEL org.opencontainers.image.description="MoSeq2 full pipeline: extract, PCA, model, viz, app"
 
-ARG VERSION=unknown
-LABEL org.opencontainers.image.revision=$VERSION
+ARG BUILD_SHA=unknown
+LABEL org.opencontainers.image.revision=$BUILD_SHA
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PATH=/opt/conda/bin:$PATH

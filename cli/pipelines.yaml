@@ -1,31 +1,31 @@
-# Pipeline manifest read by cli/run and cli/setup.sh (via cli/manifest.sh's
-# purpose-built reader -- not a general YAML parser, see that file). One
-# entry per pipeline. Blank lines and comment lines are ignored.
+# Pipeline manifest read by:
+#   - cli/run and cli/setup.sh (via cli/manifest.sh's purpose-built awk reader,
+#     which only reads the five CLI fields below -- extra CI fields are ignored)
+#   - .github/workflows/push-and-publish.yml (via python3/pyyaml, reads all fields)
 #
+# CLI fields (read by manifest.sh):
 #   name               subcommand name (`run <name> ...`). Also used by
 #                       naming convention to find this pipeline's functions
 #                       in cli/pipelines/<module>: cmd_<name>,
 #                       cmd_logs_<name>, cmd_queue_<name> (optional),
 #                       <name>_job_names, <name>_list_entry, <name>_help.
-#   module              filename under cli/pipelines/ defining those
-#                       functions.
+#   module              filename under cli/pipelines/ defining those functions.
 #   env_setup           path to this pipeline's env_setup.sh, relative to
-#                       the repo root. Sourced automatically by both
-#                       cli/run and cli/setup.sh -- `run` bootstraps its
-#                       own environment on every invocation, it doesn't
-#                       depend on the caller's shell having sourced
-#                       anything first (though ~/.bashrc sourcing is still
-#                       wired up by setup.sh too, for apptainer_* functions
-#                       to be available in your own interactive shell).
+#                       the repo root.
 #   required_env_var    an env var this pipeline's env_setup.sh exports,
-#                       checked right after sourcing as a sanity gate --
-#                       catches a missing/broken env_setup.sh with one
-#                       clear error instead of a confusing failure later.
-#   sif_var              the container image path variable, checked by
+#                       checked right after sourcing as a sanity gate.
+#   sif_var             the container image path variable, checked by
 #                       cli/setup.sh.
 #
-# Adding a new pipeline: add one entry here, drop cli/pipelines/<name>.sh
-# defining the functions above, done -- no other file needs to change.
+# CI fields (read by push-and-publish.yml, ignored by manifest.sh):
+#   context             Docker build context directory (relative to repo root).
+#   image               Full GHCR image name, e.g. ghcr.io/athp18/caiman.
+#   build_args          Optional map of static ARG=value pairs passed to
+#                       docker build. The workflow always appends
+#                       BUILD_SHA=<commit> automatically; no need to list it.
+#
+# Adding a new pipeline: add one entry here and drop cli/pipelines/<name>.sh --
+# CI picks it up automatically via the matrix, no workflow edit needed.
 
 pipelines:
   - name: miniscope
@@ -33,9 +33,16 @@ pipelines:
     env_setup: miniscope/common/env_setup.sh
     required_env_var: CAIMAN_ROOT_DIR
     sif_var: SIF
+    context: miniscope
+    image: ghcr.io/athp18/caiman
+    build_args:
+      CAIMAN_REF: main
 
   - name: moseq
     module: moseq.sh
     env_setup: moseq/common/env_setup.sh
     required_env_var: MOSEQ_PROJECTS_BASE
     sif_var: MOSEQ_SIF
+    context: moseq
+    image: ghcr.io/athp18/moseq
+    build_args: {}
