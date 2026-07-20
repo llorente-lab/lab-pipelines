@@ -1,22 +1,24 @@
 # Per-pipeline smoke tests run inside the freshly built Docker image.
 # Read by .github/workflows/push-and-publish.yml's build-and-test job.
-# Each entry is a shell command passed to `docker run --rm <image> bash -c <cmd>`.
+# Each entry is a shell command executed inside the container via `bash`.
+#
+# Format note: use `>-` (folded, strip trailing newline) for multi-line
+# commands. ALL content lines must be at the SAME indentation level --
+# any line with extra leading spaces is treated by YAML as "more-indented"
+# and gets a literal newline rather than a fold-to-space, which breaks
+# single-line shell commands.
 #
 # Adding tests for a new pipeline: add a key matching the pipeline's `name`
-# in cli/pipelines.yaml and list the commands below it. No workflow edit needed.
+# in cli/pipelines.yaml and list the commands below it.
 
 tests:
   miniscope:
     # Core import chain: catches broken CaImAn installs, the headless-opencv
     # swap, and the numpy<2 ABI pin all at once.
     - >-
-      python -c "
-      import caiman, cv2, numpy, psutil, PIL, roifile, joblib, tqdm;
-      assert int(numpy.__version__.split('.')[0]) < 2,
-        f'numpy {numpy.__version__} >= 2, ABI pin regressed';
-      print('ok: caiman', getattr(caiman, '__version__', 'unknown'),
-            '| cv2', cv2.__version__, '| numpy', numpy.__version__)
-      "
+      python -c "import caiman, cv2, numpy, psutil, PIL, roifile, joblib, tqdm;
+      assert int(numpy.__version__.split('.')[0]) < 2, f'numpy {numpy.__version__} >= 2, ABI pin regressed';
+      print('ok: caiman', getattr(caiman, '__version__', 'unknown'), '| cv2', cv2.__version__, '| numpy', numpy.__version__)"
     # rclone is installed via apt, not pip -- verify it's on PATH since
     # motion_correct.py and sync.sh shell out to it directly.
     - rclone --version
@@ -24,11 +26,6 @@ tests:
   moseq:
     # Full moseq import chain + numpy ABI pin check.
     - >-
-      python -c "
-      import moseq2_extract, moseq2_pca, moseq2_model, moseq2_viz, moseq2_app,
-             cv2, h5py, numpy;
-      assert int(numpy.__version__.split('.')[0]) < 2,
-        f'numpy {numpy.__version__} >= 2, ABI pin regressed';
-      print('ok: cv2', cv2.__version__,
-            '| h5py', h5py.__version__, '| numpy', numpy.__version__)
-      "
+      python -c "import moseq2_extract, moseq2_pca, moseq2_model, moseq2_viz, moseq2_app, cv2, h5py, numpy;
+      assert int(numpy.__version__.split('.')[0]) < 2, f'numpy {numpy.__version__} >= 2, ABI pin regressed';
+      print('ok: cv2', cv2.__version__, '| h5py', h5py.__version__, '| numpy', numpy.__version__)"

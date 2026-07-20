@@ -112,11 +112,13 @@ jobs:
               print(cmd)
           EOF
 
-          # Run each command inside the freshly built image
+          # Run each command inside the freshly built image.
+          # Uses a bash herestring (<<< "$cmd") so multi-line commands work
+          # correctly -- avoids the quoting issues of bash -c "$cmd".
           while IFS= read -r cmd; do
               [ -z "$cmd" ] && continue
               echo "==> $cmd"
-              docker run --rm "$image" bash -c "$cmd"
+              docker run --rm -i "$image" bash <<< "$cmd"
           done < /tmp/test_cmds.txt
 
   # ── 3. Tag, push, build SIF, publish ────────────────────────────────────────
