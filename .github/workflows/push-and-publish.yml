@@ -42,10 +42,11 @@ jobs:
               # Newline-separated KEY=VALUE string for docker/build-push-action
               args_lines = "\n".join(f"{k}={v}" for k, v in build_args.items())
               result.append({
-                  "name":       p["name"],
-                  "context":    p["context"],
-                  "image":      p["image"],
-                  "build_args": args_lines,
+                  "name":         p["name"],
+                  "context":      p["context"],
+                  "image":        p["image"],
+                  "release_name": p.get("release_name", p["name"]),
+                  "build_args":   args_lines,
               })
           print(json.dumps(result))
           EOF
@@ -195,7 +196,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ matrix.pipeline.name }}-sif-latest
-          name: "${{ matrix.pipeline.name }}.sif (latest, built from ${{ github.sha }})"
+          name: "${{ matrix.pipeline.release_name }} (built from ${{ github.sha }})"
           body: "Auto-built from commit ${{ github.sha }}."
           files: ${{ matrix.pipeline.name }}.sif
           token: ${{ secrets.GITHUB_TOKEN }}

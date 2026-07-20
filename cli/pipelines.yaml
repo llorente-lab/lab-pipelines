@@ -35,6 +35,7 @@ pipelines:
     sif_var: SIF
     context: miniscope
     image: ghcr.io/athp18/caiman
+    release_name: caiman-latest
     build_args:
       CAIMAN_REF: main
 
@@ -45,4 +46,5 @@ pipelines:
     sif_var: MOSEQ_SIF
     context: moseq
     image: ghcr.io/athp18/moseq
+    release_name: moseq-latest
     build_args: {}
