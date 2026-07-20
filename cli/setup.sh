@@ -57,7 +57,7 @@ check "deployed pipeline tree exists (\$PIPELINES_ROOT/current)" '[ -e "$PIPELIN
 check "apptainer is on \$PATH" 'command -v apptainer >/dev/null 2>&1'
 check "pipeline manifest exists (cli/pipelines.yaml)" '[ -f "$MANIFEST" ]'
 
-if command -v module >/dev/null 2>&1; then
+if command -v module >/dev/null 2>&1; then ##needed
     module load python/3.9.0
     module load system git
 else

@@ -8,14 +8,6 @@ Needs the container (moseq2_viz, and moseq2_model transitively) -- run via
 apptainer_python from a job script or manually, not imported by
 submit_moseq.py itself (host-side, pure stdlib).
 
-This only PICKS a kappa value and reports/records it -- it does not itself
-retrain the final model. Per the lab's stated convention, the kappa scan's
-models are deliberately short/exploratory (num_iter ~100-200), so the
-selected kappa should be fed into a fresh submit_learn_model() call at a
-full iteration count (1000) to produce the actual final model. That final
-call is intentionally a separate, explicit step (see submit_moseq.py's
-submit_master() docstring for why modeling isn't auto-chained).
-
 Usage:
     apptainer_python select_best_kappa.py <project_root> [--objective ...] [--fps 30]
 """
@@ -28,7 +20,7 @@ from pathlib import Path
 
 from moseq2_viz.helpers.wrappers import get_best_fit_model_wrapper
 
-DEFAULT_OBJECTIVE = "median_loglikelihood"  # see UNCONFIRMED note above
+DEFAULT_OBJECTIVE = "median_loglikelihood"  
 
 
 def select_best_kappa(project_root: str, objective: str = DEFAULT_OBJECTIVE, fps: int = 30) -> dict:

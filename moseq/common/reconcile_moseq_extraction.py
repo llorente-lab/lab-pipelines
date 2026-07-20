@@ -26,8 +26,7 @@ from pathlib import Path
 
 try:
     import yaml
-except ImportError:  # pragma: no cover - yaml is a moseq2 dependency too,
-    # but keep this file importable in a bare environment for testing.
+except ImportError: 
     yaml = None
 
 

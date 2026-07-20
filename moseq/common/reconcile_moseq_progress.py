@@ -4,28 +4,6 @@ around moseq2-app's own generate_intital_progressfile()/find_progress(),
 confirmed safe to call directly outside any GUI/notebook context (no
 ipywidgets coupling, pure stdlib + ruamel.yaml + toolz +
 moseq2_extract.helpers.data.check_completion_status internally).
-
-Requires the Apptainer container (moseq2_app pulls in bokeh/panel/etc. at
-import time), same as cnmfe_modeling.py on the Miniscope side -- not
-unit-testable outside Sherlock. See moseq/tests/ (once it exists) for the
-apptainer_python-gated test, mirroring test_path_resolution.py's pattern.
-
-Two things to know about find_progress(), confirmed by reading its source:
-
-1. It has a real side effect: if it finds a PCA scores file, it patches
-   pca_path into moseq2-index.yaml on disk. This is intentional and fine --
-   it's recording something true, not fabricating state -- just don't treat
-   get_progress() as a pure read.
-
-2. There's a latent relative-path bug: when pca_dirname is still '' (PCA
-   hasn't run yet), it does exists(join('', 'changepoints.h5')), i.e.
-   exists('changepoints.h5') relative to the CURRENT working directory, not
-   project_root. If this function were called from an unrelated cwd that
-   happened to contain a changepoints.h5, that would be a false positive.
-   get_progress() below neutralizes this by chdir-ing into project_root
-   before calling, so the fallback resolves inside the correct project
-   (degrading to the intended "not found" behavior) instead of wherever the
-   caller's process happened to start.
 """
 
 from __future__ import annotations
