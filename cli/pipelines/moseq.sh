@@ -74,11 +74,28 @@ moseq_python() {
 }
 
 cmd_moseq() {
+  local stage="${1-}"; shift || true
+
+  # `run moseq help` / `run moseq --help` / `run moseq -h` -- full command
+  # reference, same text `run --help` shows for moseq. Checked before the
+  # env-setup gate below on purpose: you shouldn't need a working
+  # environment just to read the help.
+  if [ "$stage" = "help" ] || [ "$stage" = "--help" ] || [ "$stage" = "-h" ]; then
+    moseq_help
+    return 0
+  fi
+  # `run moseq <stage> --help` -- one-line usage for that specific stage,
+  # instead of having to grep the full `moseq_help` text or dig through
+  # this file to find a stage's actual arguments.
+  if [ "${1-}" = "--help" ] || [ "${1-}" = "-h" ]; then
+    moseq_stage_usage "$stage"
+    return $?
+  fi
+
   if [ -z "${MOSEQ_PROJECTS_BASE-}" ]; then
     echo "run moseq: environment not set up -- have you sourced moseq/common/env_setup.sh? (see cli/setup.sh)" >&2
     exit 1
   fi
-  local stage="${1-}"; shift || true
   case "$stage" in
     init)
       local name="${1-}"; shift || true
@@ -386,6 +403,45 @@ moseq
   master <name>       chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints
   check-progress <name>  dry run: what's left to do for this project
 EOF
+}
+
+# One-line usage for a single stage, used by `run moseq <stage> --help`.
+# Keep in sync with moseq_help()'s per-stage lines below -- there's no
+# single source of truth between the two on purpose (moseq_help's lines
+# read naturally as part of a paragraph; these need to stand alone), but
+# they should never actually say different things.
+moseq_stage_usage() {
+  case "$1" in
+    init)           echo "usage: run moseq init <project_name> [--source <gdrive_path>]" ;;
+    pull)           echo "usage: run moseq pull <project_name> [--source <gdrive_path>]" ;;
+    projects)       echo "usage: run moseq projects" ;;
+    extract)        echo "usage: run moseq extract <project_name>" ;;
+    aggregate)      echo "usage: run moseq aggregate <project_name>" ;;
+    pca-fit)        echo "usage: run moseq pca-fit <project_name>" ;;
+    pca-apply)      echo "usage: run moseq pca-apply <project_name>" ;;
+    changepoints)   echo "usage: run moseq changepoints <project_name>" ;;
+    # TODO (future, not urgent): kappa-scan/learn-model only expose a
+    # curated subset of moseq2-model's real CLI flags (n-models,
+    # scan-scale, min/max-kappa, num-iter, kappa, dest-name). Someday it'd
+    # be nice to let a caller pass arbitrary extra moseq2-model flags
+    # straight through (e.g. --robust, --separate-trans, --hold-out) for
+    # non-default runs, instead of this file needing a new named flag
+    # added by hand every time moseq2-model grows one worth using. Not
+    # implementing now -- current curated set covers everything actually
+    # used so far.
+    kappa-scan)     echo "usage: run moseq kappa-scan <project_name> [--n-models N --scan-scale log|linear --min-kappa K --max-kappa K --num-iter N]" ;;
+    learn-model)    echo "usage: run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME]" ;;
+    master)         echo "usage: run moseq master <project_name>  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints)" ;;
+    check-progress) echo "usage: run moseq check-progress <project_name>" ;;
+    "")
+      echo "usage: run moseq <stage> --help -- but no stage was given. Try 'run moseq help' for the full list." >&2
+      return 1
+      ;;
+    *)
+      echo "run moseq: unknown stage '$1' -- run 'run moseq help' for the full list" >&2
+      return 1
+      ;;
+  esac
 }
 
 moseq_help() {

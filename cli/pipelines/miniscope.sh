@@ -31,6 +31,18 @@ analyzed_base() {
 cmd_miniscope() {
   local stage="${1-}"; shift || true
 
+  # `run miniscope help` / `run miniscope --help` / `run miniscope -h` --
+  # full command reference, same text `run --help` shows for miniscope.
+  if [ "$stage" = "help" ] || [ "$stage" = "--help" ] || [ "$stage" = "-h" ]; then
+    miniscope_help
+    return 0
+  fi
+  # `run miniscope <stage> --help` -- one-line usage for that stage.
+  if [ "${1-}" = "--help" ] || [ "${1-}" = "-h" ]; then
+    miniscope_stage_usage "$stage"
+    return $?
+  fi
+
   # --mail-type=FAIL if PIPELINE_NOTIFY_EMAIL is set; no-op otherwise
   local _mail_flags=()
   if [ -n "${PIPELINE_NOTIFY_EMAIL:-}" ]; then
@@ -165,6 +177,24 @@ miniscope
   master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E)
   multisession            run miniscope multisession [--mouse M] [--force]
 EOF
+}
+
+# One-line usage for a single stage, used by `run miniscope <stage> --help`.
+miniscope_stage_usage() {
+  case "$1" in
+    motion-correction) echo "usage: run miniscope motion-correction [--mouse M [--date D --tp T]]" ;;
+    cnmfe)              echo "usage: run miniscope cnmfe [--mouse M [--date D --tp T]]" ;;
+    master)              echo "usage: run miniscope master  (full sweep, hard-gated MC -> CNMF-E)" ;;
+    multisession)         echo "usage: run miniscope multisession [--mouse M] [--force]" ;;
+    "")
+      echo "usage: run miniscope <stage> --help -- but no stage was given. Try 'run miniscope help' for the full list." >&2
+      return 1
+      ;;
+    *)
+      echo "run miniscope: unknown stage '$1' -- run 'run miniscope help' for the full list" >&2
+      return 1
+      ;;
+  esac
 }
 
 miniscope_help() {

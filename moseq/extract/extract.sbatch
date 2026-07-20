@@ -14,7 +14,16 @@
 # but the per-session `extract` loop below sidesteps it entirely since
 # plain `extract` forwards output_dir correctly with no such branch.
 # --output/--error passed as explicit sbatch CLI flags by submit_moseq.py
-# -- see extract_session.sbatch's header comment for why.
+# (see submit_moseq.py's _log_flags() docstring for why: project_root
+# isn't known until submission time, and CLI flags are the only thing
+# guaranteed to beat a stray SBATCH_OUTPUT env var per Slurm's own
+# precedence rules).
+#
+# This used to be two scripts -- this one (looping every unextracted
+# session in a single job) and a near-identical extract_session.sbatch
+# for a single session -- but submit_moseq.py's submit_extraction() only
+# ever called this one; extract_session.sbatch was dead code and has been
+# removed rather than kept in sync by hand.
 #SBATCH --job-name=moseq-extract
 #SBATCH --partition=illorent
 #SBATCH --cpus-per-task=256
@@ -22,34 +31,14 @@
 #SBATCH --time=4-00:00:00
 #SBATCH --exclusive
 
-echo "==== JOB START: $(date) ===="
-echo "Node: $SLURMD_NODENAME"
-echo "Cores: $SLURM_CPUS_PER_TASK | Mem: $SLURM_MEM_PER_NODE MB"
-
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/moseq/common/env_setup.sh"
+source "$MOSEQ_COMMON_DIR/template.sh"
 
 PROJECT_ROOT="${1-}"
 CONFIG_FILE="${2-}"
-
-if [ -z "$PROJECT_ROOT" ]; then
-  echo "usage: sbatch extract.sbatch <project_root> [config_file]" >&2
-  exit 1
-fi
-PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+moseq_job_init "extract" "$PROJECT_ROOT"
 CONFIG_FILE="${CONFIG_FILE:-$PROJECT_ROOT/config.yaml}"
-
-_JOB_START="$(date -Iseconds)"
-_STATUS_FILE="$PROJECT_ROOT/status/extract.json"
-mkdir -p "$PROJECT_ROOT/status"
-_record_status() {
-  local rc=$?
-  local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
-  printf '{"stage":"extract","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
-    "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
-    "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
-}
-trap _record_status EXIT
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "config file not found: $CONFIG_FILE -- generating one now" >&2
@@ -58,13 +47,6 @@ if [ ! -f "$CONFIG_FILE" ]; then
   # what this lab actually records with.
   apptainer_exec moseq2-extract generate-config --output-file "$CONFIG_FILE" --camera-type azure
 fi
-
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export VECLIB_MAXIMUM_THREADS=$SLURM_CPUS_PER_TASK
-export NUMEXPR_MAX_THREADS=$SLURM_CPUS_PER_TASK
 
 echo "------------------------------------------------------------------"
 echo ">>> EXTRACTION START: $(date)"

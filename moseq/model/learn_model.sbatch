@@ -4,7 +4,7 @@
 # -- it's always synchronous/local, so there's no nested-Slurm question
 # here regardless of how this job itself was scheduled. --output/--error
 # passed by submit_moseq.py as explicit sbatch CLI flags -- see
-# extract_session.sbatch's header comment for why.
+# submit_moseq.py's _log_flags() docstring for why.
 #SBATCH --job-name=moseq-learn-model
 #SBATCH --partition=illorent
 #SBATCH --cpus-per-task=256
@@ -12,48 +12,26 @@
 #SBATCH --time=3-00:00:00
 #SBATCH --exclusive
 
-echo "==== JOB START: $(date) ===="
-echo "Node: $SLURMD_NODENAME"
-echo "Cores: $SLURM_CPUS_PER_TASK | Mem: $SLURM_MEM_PER_NODE MB"
-
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/moseq/common/env_setup.sh"
+source "$MOSEQ_COMMON_DIR/template.sh"
 
 PROJECT_ROOT="${1-}"
 KAPPA="${2-}"
 NUM_ITER="${3:-1000}"
 DEST_NAME="${4:-model.p}"
 
-if [ -z "$PROJECT_ROOT" ] || [ -z "$KAPPA" ]; then
-  echo "usage: sbatch learn_model.sbatch <project_root> <kappa> [num_iter] [dest_name]" >&2
+if [ -z "$KAPPA" ]; then
+  echo "usage: sbatch $(basename "$0") <project_root> <kappa> [num_iter] [dest_name]" >&2
   exit 1
 fi
-PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
-
-_JOB_START="$(date -Iseconds)"
-_STATUS_FILE="$PROJECT_ROOT/status/learn_model.json"
-mkdir -p "$PROJECT_ROOT/status"
-_record_status() {
-  local rc=$?
-  local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
-  printf '{"stage":"learn_model","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
-    "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
-    "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
-}
-trap _record_status EXIT
+moseq_job_init "learn_model" "$PROJECT_ROOT"
 
 PCA_SCORES="$PROJECT_ROOT/_pca/pca_scores.h5"
 OUTPUT_DIR="$PROJECT_ROOT/models"
 INDEX_FILE="$PROJECT_ROOT/moseq2-index.yaml"
 mkdir -p "$OUTPUT_DIR"
 DEST_FILE="$OUTPUT_DIR/$DEST_NAME"
-
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export VECLIB_MAXIMUM_THREADS=$SLURM_CPUS_PER_TASK
-export NUMEXPR_MAX_THREADS=$SLURM_CPUS_PER_TASK
 
 echo "------------------------------------------------------------------"
 echo ">>> LEARN MODEL START: $(date)"

@@ -3,7 +3,7 @@
 # --cluster-type local reasoning as pca_fit.sbatch. Also the job to
 # (re)run, cheaply, whenever new sessions are added to an existing project
 # -- no PCA refit needed. --output/--error passed by submit_moseq.py as
-# explicit sbatch CLI flags -- see extract_session.sbatch's header comment.
+# explicit sbatch CLI flags -- see submit_moseq.py's _log_flags() docstring.
 #SBATCH --job-name=moseq-pca-apply
 #SBATCH --partition=illorent
 #SBATCH --cpus-per-task=256
@@ -11,40 +11,16 @@
 #SBATCH --time=1-00:00:00
 #SBATCH --exclusive
 
-echo "==== JOB START: $(date) ===="
-echo "Node: $SLURMD_NODENAME"
-echo "Cores: $SLURM_CPUS_PER_TASK | Mem: $SLURM_MEM_PER_NODE MB"
-
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/moseq/common/env_setup.sh"
+source "$MOSEQ_COMMON_DIR/template.sh"
 
 PROJECT_ROOT="${1-}"
-if [ -z "$PROJECT_ROOT" ]; then
-  echo "usage: sbatch pca_apply.sbatch <project_root> [config_file] [pca_file]" >&2
-  exit 1
-fi
-PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
-CONFIG_FILE="${2:-$PROJECT_ROOT/config.yaml}"
-PCA_FILE="${3:-$PROJECT_ROOT/_pca/pca.h5}"
-
-_JOB_START="$(date -Iseconds)"
-_STATUS_FILE="$PROJECT_ROOT/status/pca_apply.json"
-mkdir -p "$PROJECT_ROOT/status"
-_record_status() {
-  local rc=$?
-  local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
-  printf '{"stage":"pca_apply","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
-    "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
-    "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
-}
-trap _record_status EXIT
-
-export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export MKL_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export OPENBLAS_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export NUMBA_NUM_THREADS=$SLURM_CPUS_PER_TASK
-export VECLIB_MAXIMUM_THREADS=$SLURM_CPUS_PER_TASK
-export NUMEXPR_MAX_THREADS=$SLURM_CPUS_PER_TASK
+CONFIG_FILE="${2-}"
+PCA_FILE="${3-}"
+moseq_job_init "pca_apply" "$PROJECT_ROOT"
+CONFIG_FILE="${CONFIG_FILE:-$PROJECT_ROOT/config.yaml}"
+PCA_FILE="${PCA_FILE:-$PROJECT_ROOT/_pca/pca.h5}"
 
 echo "------------------------------------------------------------------"
 echo ">>> PCA APPLY START: $(date)"
