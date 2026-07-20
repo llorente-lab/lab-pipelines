@@ -26,7 +26,7 @@ import argparse
 import json
 from pathlib import Path
 
-from moseq2_viz.helpers.wrappers import get_model_kappa_scan_best_fit_wrapper
+from moseq2_viz.helpers.wrappers import get_best_fit_model_wrapper
 
 DEFAULT_OBJECTIVE = "median_loglikelihood"  # see UNCONFIRMED note above
 
@@ -43,7 +43,7 @@ def select_best_kappa(project_root: str, objective: str = DEFAULT_OBJECTIVE, fps
             f"selection (get_best_fit() compares scanned models against it)."
         )
 
-    best_model_info, _fig = get_model_kappa_scan_best_fit_wrapper(
+    best_model_info, _fig = get_best_fit_model_wrapper(
         model_dir=str(model_dir),
         cp_file=str(cp_file),
         output_file=str(output_file),
