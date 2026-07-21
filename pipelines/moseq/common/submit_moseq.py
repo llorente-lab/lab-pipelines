@@ -30,7 +30,12 @@ MODEL_DIR = MOSEQ_ROOT_DIR / "model"
 _CLI_DIR = MOSEQ_ROOT_DIR.parent.parent / "cli"
 _MOSEQ_REGISTRY = MOSEQ_ROOT_DIR / "resources.yaml"
 
-_JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
+# Real sbatch prints "Submitted batch job <id>". `sbatch --test-only`
+# (used by scripts/dryrun_resource_flags.sh to validate flag combinations
+# without actually queuing anything) prints a differently-worded
+# "sbatch: Job <id> to start at ..." instead -- match either, so a dry
+# run doesn't spuriously raise here on a request Slurm actually accepted.
+_JOB_ID_RE = re.compile(r"Submitted batch job (\d+)|sbatch: Job (\d+) to start at")
 
 
 def _resource_flags(
@@ -160,14 +165,33 @@ def _sbatch(
     NOT interchangeable, sbatch does not accept flags after the script path.
     """
     cmd = ["sbatch", *(sbatch_flags or []), str(script), *positional_args]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    match = _JOB_ID_RE.search(result.stdout)
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        # A genuine rejection (bad --time/--qos combination, resource
+        # request that doesn't fit the partition, etc.) -- sbatch's own
+        # stderr says exactly why, but the default CalledProcessError
+        # traceback doesn't include it, just "returned non-zero exit
+        # status N". Re-raise with the actual message attached so a
+        # rejection is diagnosable instead of just "something failed".
+        raise RuntimeError(
+            f"sbatch rejected this submission (exit {e.returncode}): {e.stderr.strip() or e.stdout.strip()}"
+        ) from e
+    # Real sbatch prints "Submitted batch job <id>" to stdout. `--test-only`
+    # (see scripts/dryrun_resource_flags.sh) prints its "Job <id> to start
+    # at ..." message to STDERR instead, confirmed empirically -- a
+    # stdout-only search always failed under --test-only even on a request
+    # Slurm actually accepted. Search both.
+    match = _JOB_ID_RE.search(result.stdout) or _JOB_ID_RE.search(result.stderr)
     if not match:
         raise RuntimeError(
             f"sbatch succeeded (exit 0) but didn't return a recognizable job ID. "
-            f"stdout was: {result.stdout!r}"
+            f"stdout was: {result.stdout!r}, stderr was: {result.stderr!r}"
         )
-    return match.group(1)
+    # group(1) = real submission's "Submitted batch job N", group(2) =
+    # --test-only's "Job N to start at" -- exactly one of the two is set,
+    # whichever branch of the alternation matched.
+    return match.group(1) or match.group(2)
 
 
 def _dependency_flags(depends_on: list[str] | None) -> list[str]:
