@@ -74,3 +74,41 @@ _force_exclusive() {
   kept+=("--exclusive")
   RESOURCE_FLAGS=("${kept[@]}")
 }
+
+# Call after _set_resource_flags (and after _force_exclusive, if used) to
+# apply explicit per-invocation overrides for cores/mem/wall time -- e.g.
+# someone who knows their specific run needs more than resources.yaml's
+# calibrated-for-typical-runs number. Any argument left empty ("") is not
+# overridden, whatever's already in RESOURCE_FLAGS (or nothing, if
+# _force_exclusive already stripped it) stands. These are applied LAST,
+# after _force_exclusive, and always win even in combination with
+# --exclusive -- if someone explicitly asks for --exclusive AND a specific
+# --cores, that's a deliberate, unusual combination (a whole node, but
+# still telling Slurm to book only part of it for this job), not
+# something to silently override in either direction.
+#
+# --time has no registry equivalent at all today (resources.yaml/
+# estimate_resources.py don't estimate wall time, see the discussion in
+# past sessions) -- this is currently the ONLY way to change a stage's
+# wall time short of editing its .sbatch file's #SBATCH --time directive.
+#
+# Usage:
+#   _set_resource_flags miniscope motion-correction "n_sessions=1"
+#   [ -n "$want_exclusive" ] && _force_exclusive
+#   _apply_resource_overrides "$cores" "$mem_gb" "$time"
+_apply_resource_overrides() {
+  local cores="$1" mem_gb="$2" time="$3"
+  local flag kept=()
+  for flag in ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"}; do
+    case "$flag" in
+      --cpus-per-task=*) [ -n "$cores" ] && continue ;;
+      --mem=*)           [ -n "$mem_gb" ] && continue ;;
+      --time=*)          [ -n "$time" ] && continue ;;
+    esac
+    kept+=("$flag")
+  done
+  [ -n "$cores" ]  && kept+=("--cpus-per-task=$cores")
+  [ -n "$mem_gb" ] && kept+=("--mem=${mem_gb}G")
+  [ -n "$time" ]   && kept+=("--time=$time")
+  RESOURCE_FLAGS=("${kept[@]}")
+}

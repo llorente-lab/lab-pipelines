@@ -1,71 +1,5 @@
 """
-Submission module for the Moseq pipeline: builds and fires SLURM jobs via
-sbatch. Called from both the project notebook's cells and `run moseq` CLI
-subcommands -- both front doors call these exact functions, so submission
-logic is never duplicated between the notebook and CLI paths.
-
-Deliberately does NOT use moseq2-extract's or moseq2-pca's own
---cluster-type slurm machinery (dask-jobqueue for PCA/changepoints,
-run_slurm_extract for extraction). That machinery calls `sbatch` itself
-from *inside* whatever process runs it -- for us, that would mean calling
-sbatch from inside the Apptainer container, which is untested and would
-need Slurm's client binaries and the munge auth socket reachable inside
-the container's filesystem.
-
-To sidestep that entirely: this module always submits jobs itself from the
-host process (same pattern as Miniscope's cli/run calling `sbatch
-motion_correction.sbatch`), and every moseq2 CLI invocation *inside* a job
-always runs with --cluster-type local (using the cores that job's own
-sbatch allocation was given), never slurm. Confirmed with the user this is
-the right tradeoff for now.
-
-Modeling (moseq2-model): learn-model has NO --cluster-type flag at all
-(confirmed from its actual cli.py), it's always synchronous/local, so
-there's no nested-Slurm question for submit_learn_model() regardless of
-how the job itself was scheduled. kappa-scan does have the same
-local/slurm switch PCA does, so submit_kappa_scan() follows the same
---cluster-type local-inside-one-job pattern. Also worth noting: unlike
-extract/pca, moseq2-model's CLI has no --config-file support at all --
-every modeling parameter is a plain CLI flag/default, nothing is read from
-config.yaml here.
-
-STALE NOTE, kept as history: this used to say every job targeted illorent
-`--exclusive` at full node size, since per-stage tiering wasn't meaningful
-with only one node, and that extraction queued strictly sequentially as a
-result. That's no longer true. resources.yaml now tiers cores/mem per
-stage (`exclusive: false` by default), and extraction specifically moved
-to a job array on Sherlock's shared `normal` partition (extract_array.sbatch)
-precisely to get real concurrent execution instead of queuing one exclusive
-node's worth of sessions sequentially. `exclusive=True` is still available
-as an explicit per-call override (see _resource_flags below) for someone
-with a genuinely huge dataset who wants to reserve all of illorent for one
-expensive run -- but it's opt-in now, not the default, and extraction
-doesn't honor it (see submit_extraction's own docstring) since illorent
-was never where extraction runs in the first place.
-
-Deliberately NOT using `--cleanenv` on apptainer_exec/apptainer_python (see
-env_setup.sh) -- our whole env-var architecture (MOSEQ_SIF, RCLONE_CONFIG,
-JUPYTER_PATH, ...) depends on Apptainer's default host-env inheritance.
-Switching to --cleanenv now would mean re-auditing and re-passing every
-implicitly-relied-on var via --env, duplicating already-done work for no
-real benefit, and would diverge from Miniscope's identical pattern.
-
-Deferred, noted for later (not forgotten, just not needed yet):
-- Elastic/multi-node PCA/model fitting via dask-jobqueue's or kappa-scan's
-  real Slurm cluster type, once nested Slurm-from-inside-Apptainer has
-  actually been tested and confirmed safe, AND once there's more than one
-  node to make elastic scaling meaningful.
-- Resource allocation/sharing across pipelines (Miniscope + Moseq
-  competing for the same partition/queue) -- explicitly out of scope for
-  this module, belongs to a future cross-pipeline resource-management
-  layer per the original architecture discussion.
-- "Best model" auto-selection after a kappa scan (matching against the
-  model-free changepoint duration distribution) -- not implemented here.
-  submit_kappa_scan() only trains the batch of models; picking a winner
-  and feeding it into a final submit_learn_model() call is a separate,
-  not-yet-built step. submit_master() deliberately does NOT chain into
-  kappa-scan/learn-model for this reason -- modeling still needs an
-  explicit, separate call.
+Submission module for the Moseq pipeline
 """
 
 from __future__ import annotations
@@ -83,16 +17,35 @@ EXTRACT_DIR = MOSEQ_ROOT_DIR / "extract"
 PCA_DIR = MOSEQ_ROOT_DIR / "pca"
 MODEL_DIR = MOSEQ_ROOT_DIR / "model"
 
-_CLI_DIR = MOSEQ_ROOT_DIR.parent / "cli"
+# MOSEQ_ROOT_DIR is repo_root/pipelines/moseq -- cli/ is a sibling of
+# pipelines/ at the repo root, two levels up, not one. (Was one level up
+# before the pipelines/ restructuring moved this whole directory down a
+# level; --.parent alone silently resolved to pipelines/cli, which doesn't
+# exist, so _resource_flags's _CLI_DIR.exists() gate was False the whole
+# time post-restructuring -- every moseq submission was silently getting
+# NO computed partition/cores/mem/qos, falling back entirely to each
+# .sbatch file's static #SBATCH defaults. Caught via _resource_flags
+# actually being exercised directly while testing the cores/mem/time
+# override feature.)
+_CLI_DIR = MOSEQ_ROOT_DIR.parent.parent / "cli"
 _MOSEQ_REGISTRY = MOSEQ_ROOT_DIR / "resources.yaml"
 
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 
 
-def _resource_flags(stage: str, metadata: dict | None = None, exclusive: bool = False) -> list[str]:
+def _resource_flags(
+    stage: str,
+    metadata: dict | None = None,
+    exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
+) -> list[str]:
     """
-    Compute --partition/--cpus-per-task/--mem/--exclusive/--qos from the
-    registry. Returns [] gracefully if the estimator or registry is missing.
+    Compute --partition/--cpus-per-task/--mem/--exclusive/--qos/--time from
+    the registry. Returns [] gracefully if the estimator or registry is
+    missing (still honoring exclusive/cores/mem_gb/time overrides, since
+    those don't depend on the registry existing).
 
     exclusive=True is a caller-requested override (see submit_*'s own
     `exclusive` param), not something resources.yaml sets per stage --
@@ -105,36 +58,52 @@ def _resource_flags(stage: str, metadata: dict | None = None, exclusive: bool = 
     request with a typical-run number would just be self-defeating. Slurm
     hands the job everything the node has instead.
 
+    cores/mem_gb/time are separate, more surgical overrides -- someone who
+    knows this specific run needs a specific number, not the whole node.
+    When given, they ALWAYS win, even combined with exclusive=True (an
+    unusual but valid combination: reserve the whole node, but still tell
+    Slurm this job itself only wants part of it). time in particular has
+    no registry equivalent at all -- resources.yaml/estimate_resources.py
+    don't estimate wall time, so this is currently the only way to change
+    a stage's wall time short of editing its .sbatch file's #SBATCH --time
+    directive by hand.
+
     --qos is only ever appended when resources.yaml names one explicitly
     for this stage (see estimate_resources.py's header) -- e.g. kappa-scan
     and learn-model, whose --time exceeds the account's default QOS
     MaxWall and genuinely cannot run without a higher one. Every other
     stage is left on Sherlock's own default QOS, no override.
     """
-    if not _CLI_DIR.exists() or not _MOSEQ_REGISTRY.exists():
-        return ["--exclusive"] if exclusive else []
-    cli_dir = str(_CLI_DIR)
-    if cli_dir not in sys.path:
-        sys.path.insert(0, cli_dir)
-    try:
-        from estimate_resources import estimate
-        result = estimate(str(_MOSEQ_REGISTRY), stage, metadata or {})
-    except Exception:
-        return ["--exclusive"] if exclusive else []
+    result: dict = {}
+    if _CLI_DIR.exists() and _MOSEQ_REGISTRY.exists():
+        cli_dir = str(_CLI_DIR)
+        if cli_dir not in sys.path:
+            sys.path.insert(0, cli_dir)
+        try:
+            from estimate_resources import estimate
+            result = estimate(str(_MOSEQ_REGISTRY), stage, metadata or {})
+        except Exception:
+            result = {}
+
     flags: list[str] = []
     if result.get("partition"):
         flags.append(f"--partition={result['partition']}")
     if exclusive:
         flags.append("--exclusive")
-    else:
-        if result.get("cores") is not None:
-            flags.append(f"--cpus-per-task={result['cores']}")
-        if result.get("mem_gb") is not None:
-            flags.append(f"--mem={result['mem_gb']}G")
-        if result.get("exclusive"):
-            flags.append("--exclusive")
+
+    c = cores if cores is not None else (None if exclusive else result.get("cores"))
+    m = mem_gb if mem_gb is not None else (None if exclusive else result.get("mem_gb"))
+    if c is not None:
+        flags.append(f"--cpus-per-task={c}")
+    if m is not None:
+        flags.append(f"--mem={m}G")
+    if not exclusive and result.get("exclusive"):
+        flags.append("--exclusive")
+
     if result.get("qos"):
         flags.append(f"--qos={result['qos']}")
+    if time:
+        flags.append(f"--time={time}")
     return flags
 
 
@@ -225,6 +194,9 @@ def submit_extraction(
     config_file: str | None = None,
     use_array: bool = True,
     exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> list[str]:
     """
     Submit extraction jobs. Returns job ID(s) as a list (for dependency
@@ -254,6 +226,11 @@ def submit_extraction(
     --exclusive is for). The parameter still exists so submit_master()
     can pass exclusive=... uniformly to every stage without a special
     case; it's just a no-op for this one.
+
+    cores/mem_gb/time, unlike exclusive, ARE honored here (applied per
+    array task when use_array=True) -- overriding "how many cores does
+    each session's extraction get" is a normal, harmless request, not the
+    whole-node problem exclusive would be.
     """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
@@ -264,8 +241,9 @@ def submit_extraction(
 
     # exclusive intentionally not passed through -- see this function's
     # docstring on why extraction never honors it, in either branch (both
-    # target the `normal` partition, not illorent).
-    res = _resource_flags("extract", {"n_sessions": len(sessions)})
+    # target the `normal` partition, not illorent). cores/mem_gb/time are
+    # passed through normally.
+    res = _resource_flags("extract", {"n_sessions": len(sessions)}, cores=cores, mem_gb=mem_gb, time=time)
 
     if not use_array:
         script = EXTRACT_DIR / "extract.sbatch"
@@ -305,11 +283,27 @@ def submit_extraction(
             *res,
         ],
     )
+
+    # Validate after all array tasks finish, pass or fail, so the report
+    # covers partial failures too (afterany, not afterok).
+    _sbatch(
+        EXTRACT_DIR / "validate_extractions.sbatch",
+        project_root,
+        sbatch_flags=_log_flags(project_root, "validate_extractions")
+        + [f"--dependency=afterany:{job_id}"]
+        + _mail_flags(),
+    )
+
     return [job_id]
 
 
 def submit_aggregate(
-    project_root: str, depends_on: list[str] | None = None, exclusive: bool = False
+    project_root: str,
+    depends_on: list[str] | None = None,
+    exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> str:
     """
     Consolidates every session's proc/ output into aggregate_results/ and
@@ -324,7 +318,7 @@ def submit_aggregate(
     return _sbatch(
         script, project_root,
         sbatch_flags=_sbatch_flags(project_root, "aggregate", depends_on)
-        + _resource_flags("aggregate", exclusive=exclusive),
+        + _resource_flags("aggregate", exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time),
     )
 
 
@@ -333,6 +327,9 @@ def submit_pca_fit(
     config_file: str | None = None,
     depends_on: list[str] | None = None,
     exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> str:
     """Fits PCA across the whole aggregated session batch (see pca_fit.sbatch)."""
     project_root = str(Path(project_root).resolve())
@@ -342,7 +339,10 @@ def submit_pca_fit(
     return _sbatch(
         script, project_root, config_file,
         sbatch_flags=_sbatch_flags(project_root, "pca_fit", depends_on)
-        + _resource_flags("pca-fit", {"n_sessions": n} if n is not None else {}, exclusive=exclusive),
+        + _resource_flags(
+            "pca-fit", {"n_sessions": n} if n is not None else {},
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        ),
     )
 
 
@@ -352,6 +352,9 @@ def submit_pca_apply(
     pca_file: str | None = None,
     depends_on: list[str] | None = None,
     exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> str:
     """
     Projects extracted sessions onto an already-fit PCA basis (see
@@ -366,7 +369,10 @@ def submit_pca_apply(
     return _sbatch(
         script, project_root, config_file, pca_file,
         sbatch_flags=_sbatch_flags(project_root, "pca_apply", depends_on)
-        + _resource_flags("pca-apply", {"n_sessions": n} if n is not None else {}, exclusive=exclusive),
+        + _resource_flags(
+            "pca-apply", {"n_sessions": n} if n is not None else {},
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        ),
     )
 
 
@@ -377,6 +383,9 @@ def submit_compute_changepoints(
     pca_file_scores: str | None = None,
     depends_on: list[str] | None = None,
     exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> str:
     """
     Model-free syllable changepoints from PCA scores (see
@@ -397,7 +406,10 @@ def submit_compute_changepoints(
         pca_file_components,
         pca_file_scores,
         sbatch_flags=_sbatch_flags(project_root, "changepoints", depends_on)
-        + _resource_flags("changepoints", {"n_sessions": n} if n is not None else {}, exclusive=exclusive),
+        + _resource_flags(
+            "changepoints", {"n_sessions": n} if n is not None else {},
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        ),
     )
 
 
@@ -410,6 +422,9 @@ def submit_kappa_scan(
     num_iter: int = 100,
     depends_on: list[str] | None = None,
     exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> str:
     """
     Trains n_models models scanning kappa (see kappa_scan.sbatch), one
@@ -433,7 +448,10 @@ def submit_kappa_scan(
     return _sbatch(
         script, *args,
         sbatch_flags=_sbatch_flags(project_root, "kappa_scan", depends_on)
-        + _resource_flags("kappa-scan", {"n_models": n_models, "num_iter": num_iter}, exclusive=exclusive),
+        + _resource_flags(
+            "kappa-scan", {"n_models": n_models, "num_iter": num_iter},
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        ),
     )
 
 
@@ -444,6 +462,9 @@ def submit_learn_model(
     dest_name: str = "model.p",
     depends_on: list[str] | None = None,
     exclusive: bool = False,
+    cores: int | None = None,
+    mem_gb: int | None = None,
+    time: str | None = None,
 ) -> str:
     """
     Trains a single final model at a chosen kappa (see learn_model.sbatch).
@@ -461,7 +482,10 @@ def submit_learn_model(
         str(num_iter),
         dest_name,
         sbatch_flags=_sbatch_flags(project_root, "learn_model", depends_on)
-        + _resource_flags("learn-model", {"num_iter": num_iter}, exclusive=exclusive),
+        + _resource_flags(
+            "learn-model", {"num_iter": num_iter},
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        ),
     )
 
 

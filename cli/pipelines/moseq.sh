@@ -11,19 +11,35 @@
 MOSEQ_PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
 [ -d "$MOSEQ_PYTHON_MODULE_BIN" ] && PATH="$MOSEQ_PYTHON_MODULE_BIN:$PATH"
 
-# Scans the given args for --exclusive and echoes a Python bool literal
-# (True/False) ready to splice into a moseq_python -c heredoc's
-# exclusive=... kwarg. Doesn't consume/validate the rest of the args --
-# each stage case below still does its own parsing/validation for
-# anything besides this one flag. See submit_moseq.py's _resource_flags
-# docstring for what --exclusive actually does (whole-node illorent
-# request, drops the calibrated cores/mem numbers for that one run).
-_moseq_want_exclusive() {
-  local a
-  for a in "$@"; do
-    [ "$a" = "--exclusive" ] && { echo "True"; return; }
+# Parses --exclusive/--cores/--mem/--time out of "$@" -- common resource
+# overrides available on every stage, see submit_moseq.py's _resource_flags
+# docstring for what each one actually does. Sets:
+#   MOSEQ_EXCLUSIVE   Python bool literal ("True"/"False")
+#   MOSEQ_CORES_PY    bare int literal or "None", ready to splice
+#   MOSEQ_MEM_PY      bare int literal or "None", ready to splice
+#   MOSEQ_TIME_PY     quoted string literal or "None", ready to splice
+#   MOSEQ_REMAINING_ARGS   array of anything NOT recognized as one of the
+#                          four flags above -- NOT an error by itself, since
+#                          kappa-scan/learn-model have their own additional
+#                          flags to check this against; a stage with no
+#                          flags of its own should error if this is non-empty.
+_moseq_parse_resource_flags() {
+  local exclusive="False" cores="" mem="" time=""
+  MOSEQ_REMAINING_ARGS=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --exclusive) exclusive="True"; shift ;;
+      --cores)     cores="$2"; shift 2 ;;
+      --mem)       mem="$2"; shift 2 ;;
+      --time)      time="$2"; shift 2 ;;
+      *) MOSEQ_REMAINING_ARGS+=("$1"); shift ;;
+    esac
   done
-  echo "False"
+  MOSEQ_EXCLUSIVE="$exclusive"
+  MOSEQ_CORES_PY="${cores:-None}"
+  MOSEQ_MEM_PY="${mem:-None}"
+  MOSEQ_TIME_PY="None"
+  [ -n "$time" ] && MOSEQ_TIME_PY="'$time'"
 }
 
 moseq_project_dir() {
@@ -219,8 +235,12 @@ cmd_moseq() {
     extract)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local exclusive; exclusive="$(_moseq_want_exclusive "$@")"
-      if [ "$exclusive" = "True" ]; then
+      _moseq_parse_resource_flags "$@"
+      if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ]; then
+        echo "run moseq extract: unrecognized argument '${MOSEQ_REMAINING_ARGS[0]}'" >&2
+        exit 1
+      fi
+      if [ "$MOSEQ_EXCLUSIVE" = "True" ]; then
         echo "run moseq extract: note -- --exclusive has no effect here, extraction always runs" >&2
         echo "  as a job array on Sherlock's shared 'normal' partition, not illorent (see" >&2
         echo "  extract_array.sbatch); 'run moseq master --exclusive' reserves illorent for" >&2
@@ -228,7 +248,7 @@ cmd_moseq() {
       fi
       moseq_python -c "
 import submit_moseq
-job_ids = submit_moseq.submit_extraction('$project_dir', exclusive=$exclusive)
+job_ids = submit_moseq.submit_extraction('$project_dir', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY)
 if job_ids:
     print('submitted extraction jobs:', ', '.join(job_ids))
 else:
@@ -238,43 +258,61 @@ else:
     aggregate)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local exclusive; exclusive="$(_moseq_want_exclusive "$@")"
+      _moseq_parse_resource_flags "$@"
+      if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ]; then
+        echo "run moseq aggregate: unrecognized argument '${MOSEQ_REMAINING_ARGS[0]}'" >&2
+        exit 1
+      fi
       moseq_python -c "
 import submit_moseq
-print('submitted aggregate job:', submit_moseq.submit_aggregate('$project_dir', exclusive=$exclusive))
+print('submitted aggregate job:', submit_moseq.submit_aggregate('$project_dir', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY))
 "
       ;;
     pca-fit)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local exclusive; exclusive="$(_moseq_want_exclusive "$@")"
+      _moseq_parse_resource_flags "$@"
+      if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ]; then
+        echo "run moseq pca-fit: unrecognized argument '${MOSEQ_REMAINING_ARGS[0]}'" >&2
+        exit 1
+      fi
       moseq_python -c "
 import submit_moseq
-print('submitted pca-fit job:', submit_moseq.submit_pca_fit('$project_dir', exclusive=$exclusive))
+print('submitted pca-fit job:', submit_moseq.submit_pca_fit('$project_dir', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY))
 "
       ;;
     pca-apply)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local exclusive; exclusive="$(_moseq_want_exclusive "$@")"
+      _moseq_parse_resource_flags "$@"
+      if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ]; then
+        echo "run moseq pca-apply: unrecognized argument '${MOSEQ_REMAINING_ARGS[0]}'" >&2
+        exit 1
+      fi
       moseq_python -c "
 import submit_moseq
-print('submitted pca-apply job:', submit_moseq.submit_pca_apply('$project_dir', exclusive=$exclusive))
+print('submitted pca-apply job:', submit_moseq.submit_pca_apply('$project_dir', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY))
 "
       ;;
     changepoints)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local exclusive; exclusive="$(_moseq_want_exclusive "$@")"
+      _moseq_parse_resource_flags "$@"
+      if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ]; then
+        echo "run moseq changepoints: unrecognized argument '${MOSEQ_REMAINING_ARGS[0]}'" >&2
+        exit 1
+      fi
       moseq_python -c "
 import submit_moseq
-print('submitted changepoints job:', submit_moseq.submit_compute_changepoints('$project_dir', exclusive=$exclusive))
+print('submitted changepoints job:', submit_moseq.submit_compute_changepoints('$project_dir', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY))
 "
       ;;
     kappa-scan)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local n_models="10" scan_scale="log" min_kappa="" max_kappa="" num_iter="100" exclusive="False"
+      local n_models="10" scan_scale="log" min_kappa="" max_kappa="" num_iter="100"
+      _moseq_parse_resource_flags "$@"
+      set -- ${MOSEQ_REMAINING_ARGS[@]+"${MOSEQ_REMAINING_ARGS[@]}"}
       while [ $# -gt 0 ]; do
         case "$1" in
           --n-models)   n_models="$2"; shift 2 ;;
@@ -282,7 +320,6 @@ print('submitted changepoints job:', submit_moseq.submit_compute_changepoints('$
           --min-kappa)  min_kappa="$2"; shift 2 ;;
           --max-kappa)  max_kappa="$2"; shift 2 ;;
           --num-iter)   num_iter="$2"; shift 2 ;;
-          --exclusive)  exclusive="True"; shift ;;
           *) echo "run moseq kappa-scan: unrecognized argument '$1'" >&2; exit 1 ;;
         esac
       done
@@ -295,7 +332,10 @@ job_id = submit_moseq.submit_kappa_scan(
     min_kappa=${min_kappa:-None},
     max_kappa=${max_kappa:-None},
     num_iter=$num_iter,
-    exclusive=$exclusive,
+    exclusive=$MOSEQ_EXCLUSIVE,
+    cores=$MOSEQ_CORES_PY,
+    mem_gb=$MOSEQ_MEM_PY,
+    time=$MOSEQ_TIME_PY,
 )
 print('submitted kappa-scan job:', job_id)
 print('note: this also runs select_best_kappa.py automatically at the end -- check', '$project_dir/models/best_kappa_selection.json', 'once it finishes')
@@ -304,13 +344,14 @@ print('note: this also runs select_best_kappa.py automatically at the end -- che
     learn-model)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local kappa="" num_iter="1000" dest_name="model.p" exclusive="False"
+      local kappa="" num_iter="1000" dest_name="model.p"
+      _moseq_parse_resource_flags "$@"
+      set -- ${MOSEQ_REMAINING_ARGS[@]+"${MOSEQ_REMAINING_ARGS[@]}"}
       while [ $# -gt 0 ]; do
         case "$1" in
           --kappa)     kappa="$2"; shift 2 ;;
           --num-iter)  num_iter="$2"; shift 2 ;;
           --dest-name) dest_name="$2"; shift 2 ;;
-          --exclusive) exclusive="True"; shift ;;
           *) echo "run moseq learn-model: unrecognized argument '$1'" >&2; exit 1 ;;
         esac
       done
@@ -320,23 +361,30 @@ print('note: this also runs select_best_kappa.py automatically at the end -- che
       fi
       moseq_python -c "
 import submit_moseq
-job_id = submit_moseq.submit_learn_model('$project_dir', kappa=$kappa, num_iter=$num_iter, dest_name='$dest_name', exclusive=$exclusive)
+job_id = submit_moseq.submit_learn_model('$project_dir', kappa=$kappa, num_iter=$num_iter, dest_name='$dest_name', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY)
 print('submitted learn-model job:', job_id)
 "
       ;;
     master)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      local exclusive; exclusive="$(_moseq_want_exclusive "$@")"
+      _moseq_parse_resource_flags "$@"
+      if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ] || [ "$MOSEQ_CORES_PY" != "None" ] || [ "$MOSEQ_MEM_PY" != "None" ] || [ "$MOSEQ_TIME_PY" != "None" ]; then
+        echo "run moseq master: only --exclusive is supported here, not --cores/--mem/--time" >&2
+        echo "  (5 very differently-sized stages are chained, a single cores/mem override" >&2
+        echo "  wouldn't make sense across all of them) -- run each stage individually if" >&2
+        echo "  you need to override one stage's cores/mem specifically." >&2
+        exit 1
+      fi
       moseq_python -c "
 import json
 import submit_moseq
-jobs = submit_moseq.submit_master('$project_dir', exclusive=$exclusive)
+jobs = submit_moseq.submit_master('$project_dir', exclusive=$MOSEQ_EXCLUSIVE)
 print('submitted master chain (extract -> aggregate -> pca-fit -> pca-apply -> changepoints):')
 print(json.dumps(jobs, indent=2))
 print()
 print('note: modeling (kappa-scan / learn-model) is NOT chained -- run those separately once changepoints finishes.')
-if $exclusive:
+if $MOSEQ_EXCLUSIVE:
     print('note: --exclusive applies to every stage above EXCEPT extraction, which always targets')
     print('      the shared normal partition (a job array), not illorent -- see submit_master()\'s docstring.')
 "
@@ -426,14 +474,14 @@ moseq
   init <name>         run moseq init <name> [--source <gdrive_path>]  (record-only)
   pull <name>         run moseq pull <name> [--source <gdrive_path>]  (async job, normal partition)
   projects            run moseq projects
-  extract <name>      one job per session still needing extraction  [--exclusive]
-  aggregate <name>    consolidate proc/ output, regenerate moseq2-index.yaml  [--exclusive]
-  pca-fit <name>      fit PCA (also auto-selects npcs for 90% variance)  [--exclusive]
-  pca-apply <name>    project sessions onto the fit PCA basis  [--exclusive]
-  changepoints <name> model-free syllable changepoints from PCA scores  [--exclusive]
-  kappa-scan <name>   [--n-models N --scan-scale log|linear --min-kappa --max-kappa --num-iter] [--exclusive]
-  learn-model <name>  --kappa K [--num-iter --dest-name]  (final model fit) [--exclusive]
-  master <name>       chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints [--exclusive]
+  extract <name>      one job per session still needing extraction  [--exclusive|--cores N|--mem MEM|--time T]
+  aggregate <name>    consolidate proc/ output, regenerate moseq2-index.yaml  [--exclusive|--cores N|--mem MEM|--time T]
+  pca-fit <name>      fit PCA (also auto-selects npcs for 90% variance)  [--exclusive|--cores N|--mem MEM|--time T]
+  pca-apply <name>    project sessions onto the fit PCA basis  [--exclusive|--cores N|--mem MEM|--time T]
+  changepoints <name> model-free syllable changepoints from PCA scores  [--exclusive|--cores N|--mem MEM|--time T]
+  kappa-scan <name>   [--n-models N --scan-scale log|linear --min-kappa --max-kappa --num-iter] [--exclusive|--cores N|--mem MEM|--time T]
+  learn-model <name>  --kappa K [--num-iter --dest-name]  (final model fit) [--exclusive|--cores N|--mem MEM|--time T]
+  master <name>       chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints [--exclusive only]
   check-progress <name>  dry run: what's left to do for this project
 EOF
 }
@@ -448,11 +496,11 @@ moseq_stage_usage() {
     init)           echo "usage: run moseq init <project_name> [--source <gdrive_path>]" ;;
     pull)           echo "usage: run moseq pull <project_name> [--source <gdrive_path>]" ;;
     projects)       echo "usage: run moseq projects" ;;
-    extract)        echo "usage: run moseq extract <project_name> [--exclusive]" ;;
-    aggregate)      echo "usage: run moseq aggregate <project_name> [--exclusive]" ;;
-    pca-fit)        echo "usage: run moseq pca-fit <project_name> [--exclusive]" ;;
-    pca-apply)      echo "usage: run moseq pca-apply <project_name> [--exclusive]" ;;
-    changepoints)   echo "usage: run moseq changepoints <project_name> [--exclusive]" ;;
+    extract)        echo "usage: run moseq extract <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    aggregate)      echo "usage: run moseq aggregate <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    pca-fit)        echo "usage: run moseq pca-fit <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    pca-apply)      echo "usage: run moseq pca-apply <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    changepoints)   echo "usage: run moseq changepoints <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     # TODO (future, not urgent): kappa-scan/learn-model only expose a
     # curated subset of moseq2-model's real CLI flags (n-models,
     # scan-scale, min/max-kappa, num-iter, kappa, dest-name). Someday it'd
@@ -462,9 +510,9 @@ moseq_stage_usage() {
     # added by hand every time moseq2-model grows one worth using. Not
     # implementing now -- current curated set covers everything actually
     # used so far.
-    kappa-scan)     echo "usage: run moseq kappa-scan <project_name> [--n-models N --scan-scale log|linear --min-kappa K --max-kappa K --num-iter N] [--exclusive]" ;;
-    learn-model)    echo "usage: run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive]" ;;
-    master)         echo "usage: run moseq master <project_name> [--exclusive]  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints)" ;;
+    kappa-scan)     echo "usage: run moseq kappa-scan <project_name> [--n-models N --scan-scale log|linear --min-kappa K --max-kappa K --num-iter N] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    learn-model)    echo "usage: run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    master)         echo "usage: run moseq master <project_name> [--exclusive]  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints; --cores/--mem/--time not supported here)" ;;
     check-progress) echo "usage: run moseq check-progress <project_name>" ;;
     "")
       echo "usage: run moseq <stage> --help -- but no stage was given. Try 'run moseq help' for the full list." >&2
@@ -482,13 +530,13 @@ moseq_help() {
   run moseq init <project_name> [--source <gdrive_path>]
   run moseq pull <project_name> [--source <gdrive_path>]
   run moseq projects
-  run moseq extract <project_name> [--exclusive]
-  run moseq aggregate <project_name> [--exclusive]
-  run moseq pca-fit <project_name> [--exclusive]
-  run moseq pca-apply <project_name> [--exclusive]
-  run moseq changepoints <project_name> [--exclusive]
-  run moseq kappa-scan <project_name> [--n-models N --scan-scale S --min-kappa K --max-kappa K --num-iter N] [--exclusive]
-  run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive]
+  run moseq extract <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run moseq aggregate <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run moseq pca-fit <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run moseq pca-apply <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run moseq changepoints <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run moseq kappa-scan <project_name> [--n-models N --scan-scale S --min-kappa K --max-kappa K --num-iter N] [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]
   run moseq master <project_name> [--exclusive]
   run moseq check-progress <project_name>
   run logs moseq <stage> <project_name>
@@ -503,6 +551,18 @@ extract_array.sbatch), not illorent, so `run moseq extract --exclusive`
 is accepted but ignored there -- `run moseq master --exclusive` applies
 --exclusive to aggregate/pca-fit/pca-apply/changepoints only, extraction
 in that chain is unaffected either way.
+
+--cores N / --mem MEM (plain number of GB, e.g. --mem 200 -- no unit
+suffix) / --time T (Slurm duration, e.g. 2-00:00:00) override
+resources.yaml's computed cores/mem/wall-time for that one invocation
+only. Combinable with --exclusive -- when given together, the explicit
+--cores/--mem/--time always win. --time has no registry-computed
+equivalent at all today; this is the only way to change a stage's wall
+time short of editing its .sbatch file's #SBATCH --time directive by
+hand. NOT available on `run moseq master`: it chains five differently-
+sized stages, so a single cores/mem/time number wouldn't mean the same
+thing applied to all of them -- run a stage individually if you need to
+override its cores/mem/time specifically.
 
 `run moseq init <name> [--source <gdrive_path>]` creates
 $MOSEQ_PROJECTS_BASE/<name> (canonical home for every lab member's Moseq
