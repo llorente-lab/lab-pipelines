@@ -269,9 +269,9 @@ class TestSubmitLearnModel(unittest.TestCase):
         self.assertEqual(tail, [str(self.tmp.resolve()), "75000.0", "200", "model_k75000.p"])
 
 
-class TestSubmitMasterChaining(unittest.TestCase):
+class TestSubmitFullPipelineChaining(unittest.TestCase):
     """
-    submit_master() should chain every stage via --dependency=afterok on
+    submit_full_pipeline() should chain every stage via --dependency=afterok on
     the previous stage's job ID(s), so e.g. PCA fit can never race ahead of
     aggregation. Mocks each submit_* function directly rather than
     subprocess, to isolate the chaining logic itself from sbatch-call
@@ -290,7 +290,7 @@ class TestSubmitMasterChaining(unittest.TestCase):
              mock.patch.object(submit_moseq, "submit_pca_fit", return_value="4") as m_fit, \
              mock.patch.object(submit_moseq, "submit_pca_apply", return_value="5") as m_apply, \
              mock.patch.object(submit_moseq, "submit_compute_changepoints", return_value="6") as m_cp:
-            result = submit_moseq.submit_master(str(self.tmp))
+            result = submit_moseq.submit_full_pipeline(str(self.tmp))
 
         m_agg.assert_called_once_with(str(self.tmp), depends_on=["1", "2"], exclusive=False)
         m_fit.assert_called_once_with(str(self.tmp), None, depends_on=["3"], exclusive=False)
@@ -309,8 +309,8 @@ class TestSubmitMasterChaining(unittest.TestCase):
 
     def test_does_not_touch_modeling(self):
         # Modeling needs a kappa-selection decision between the scan and
-        # the final fit, so submit_master() must never call these two --
-        # confirms the intentional gap documented in submit_master()'s
+        # the final fit, so submit_full_pipeline() must never call these two --
+        # confirms the intentional gap documented in submit_full_pipeline()'s
         # docstring, not an accidental omission.
         with mock.patch.object(submit_moseq, "submit_extraction", return_value=[]), \
              mock.patch.object(submit_moseq, "submit_aggregate", return_value="1"), \
@@ -319,7 +319,7 @@ class TestSubmitMasterChaining(unittest.TestCase):
              mock.patch.object(submit_moseq, "submit_compute_changepoints", return_value="4"), \
              mock.patch.object(submit_moseq, "submit_kappa_scan") as m_kappa, \
              mock.patch.object(submit_moseq, "submit_learn_model") as m_learn:
-            submit_moseq.submit_master(str(self.tmp))
+            submit_moseq.submit_full_pipeline(str(self.tmp))
 
         m_kappa.assert_not_called()
         m_learn.assert_not_called()
@@ -330,7 +330,7 @@ class TestSubmitMasterChaining(unittest.TestCase):
              mock.patch.object(submit_moseq, "submit_pca_fit", return_value="2"), \
              mock.patch.object(submit_moseq, "submit_pca_apply", return_value="3"), \
              mock.patch.object(submit_moseq, "submit_compute_changepoints", return_value="4"):
-            submit_moseq.submit_master(str(self.tmp))
+            submit_moseq.submit_full_pipeline(str(self.tmp))
 
         m_agg.assert_called_once_with(str(self.tmp), depends_on=None, exclusive=False)
 

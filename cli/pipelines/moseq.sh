@@ -213,7 +213,7 @@ EOF
       if [ "$MOSEQ_EXCLUSIVE" = "True" ]; then
         echo "run moseq extract: note -- --exclusive has no effect here, extraction always runs" >&2
         echo "  as a job array on Sherlock's shared 'normal' partition, not illorent (see" >&2
-        echo "  extract_array.sbatch); 'run moseq master --exclusive' reserves illorent for" >&2
+        echo "  extract_array.sbatch); 'run moseq full-pipeline --exclusive' reserves illorent for" >&2
         echo "  the other stages in the chain instead." >&2
       fi
       moseq_python -c "
@@ -335,12 +335,12 @@ job_id = submit_moseq.submit_learn_model('$project_dir', kappa=$kappa, num_iter=
 print('submitted learn-model job:', job_id)
 "
       ;;
-    master)
+    full-pipeline)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
       _moseq_parse_resource_flags "$@"
       if [ ${#MOSEQ_REMAINING_ARGS[@]} -gt 0 ] || [ "$MOSEQ_CORES_PY" != "None" ] || [ "$MOSEQ_MEM_PY" != "None" ] || [ "$MOSEQ_TIME_PY" != "None" ]; then
-        echo "run moseq master: only --exclusive is supported here, not --cores/--mem/--time" >&2
+        echo "run moseq full-pipeline: only --exclusive is supported here, not --cores/--mem/--time" >&2
         echo "  (5 very differently-sized stages are chained, a single cores/mem override" >&2
         echo "  wouldn't make sense across all of them) -- run each stage individually if" >&2
         echo "  you need to override one stage's cores/mem specifically." >&2
@@ -349,14 +349,14 @@ print('submitted learn-model job:', job_id)
       moseq_python -c "
 import json
 import submit_moseq
-jobs = submit_moseq.submit_master('$project_dir', exclusive=$MOSEQ_EXCLUSIVE)
-print('submitted master chain (extract -> aggregate -> pca-fit -> pca-apply -> changepoints):')
+jobs = submit_moseq.submit_full_pipeline('$project_dir', exclusive=$MOSEQ_EXCLUSIVE)
+print('submitted full-pipeline chain (extract -> aggregate -> pca-fit -> pca-apply -> changepoints):')
 print(json.dumps(jobs, indent=2))
 print()
 print('note: modeling (kappa-scan / learn-model) is NOT chained -- run those separately once changepoints finishes.')
 if $MOSEQ_EXCLUSIVE:
     print('note: --exclusive applies to every stage above EXCEPT extraction, which always targets')
-    print('      the shared normal partition (a job array), not illorent -- see submit_master()\'s docstring.')
+    print('      the shared normal partition (a job array), not illorent -- see submit_full_pipeline()\'s docstring.')
 "
       ;;
     dashboard)
@@ -386,7 +386,7 @@ print('  best model selected: ', best_model_is_selected('$project_dir', progress
 "
       ;;
     "")
-      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'jupyter-info', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', 'check-progress', or 'dashboard'" >&2
+      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'jupyter-info', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'full-pipeline', 'check-progress', or 'dashboard'" >&2
       exit 1
       ;;
     *)
@@ -452,7 +452,7 @@ moseq
   changepoints <name> model-free syllable changepoints from PCA scores  [--exclusive|--cores N|--mem MEM|--time T]
   kappa-scan <name>   [--n-models N --scan-scale log|linear --min-kappa --max-kappa --num-iter] [--exclusive|--cores N|--mem MEM|--time T]
   learn-model <name>  --kappa K [--num-iter --dest-name]  (final model fit) [--exclusive|--cores N|--mem MEM|--time T]
-  master <name>       chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints [--exclusive only]
+  full-pipeline <name>  chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints [--exclusive only]
   check-progress <name>  dry run: what's left to do for this project
   dashboard <name>    table of every submitted job (stage, submitted time, live/finished state)
 EOF
@@ -471,7 +471,7 @@ moseq_stage_usage() {
     changepoints)   echo "usage: run moseq changepoints <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     kappa-scan)     echo "usage: run moseq kappa-scan <project_name> [--n-models N --scan-scale log|linear --min-kappa K --max-kappa K --num-iter N] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     learn-model)    echo "usage: run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
-    master)         echo "usage: run moseq master <project_name> [--exclusive]  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints; --cores/--mem/--time not supported here)" ;;
+    full-pipeline)  echo "usage: run moseq full-pipeline <project_name> [--exclusive]  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints; --cores/--mem/--time not supported here)" ;;
     check-progress) echo "usage: run moseq check-progress <project_name>" ;;
     dashboard)      echo "usage: run moseq dashboard <project_name>" ;;
     "")
@@ -498,7 +498,7 @@ moseq_help() {
   run moseq changepoints <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
   run moseq kappa-scan <project_name> [--n-models N --scan-scale S --min-kappa K --max-kappa K --num-iter N] [--exclusive] [--cores N] [--mem MEM] [--time T]
   run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]
-  run moseq master <project_name> [--exclusive]
+  run moseq full-pipeline <project_name> [--exclusive]
   run moseq check-progress <project_name>
   run moseq dashboard <project_name>
   run logs moseq <stage> <project_name>
@@ -510,7 +510,7 @@ worth having all of it, not something to reach for routinely. Extraction
 is the one stage this doesn't apply to the way you'd expect: it always
 targets Sherlock's shared `normal` partition as a job array (see
 extract_array.sbatch), not illorent, so `run moseq extract --exclusive`
-is accepted but ignored there -- `run moseq master --exclusive` applies
+is accepted but ignored there -- `run moseq full-pipeline --exclusive` applies
 --exclusive to aggregate/pca-fit/pca-apply/changepoints only, extraction
 in that chain is unaffected either way.
 
@@ -521,7 +521,7 @@ only. Combinable with --exclusive -- when given together, the explicit
 --cores/--mem/--time always win. --time has no registry-computed
 equivalent at all today; this is the only way to change a stage's wall
 time short of editing its .sbatch file's #SBATCH --time directive by
-hand. NOT available on `run moseq master`: it chains five differently-
+hand. NOT available on `run moseq full-pipeline`: it chains five differently-
 sized stages, so a single cores/mem/time number wouldn't mean the same
 thing applied to all of them -- run a stage individually if you need to
 override its cores/mem/time specifically.
@@ -562,12 +562,12 @@ launched through Sherlock's own web portal, not something this CLI can
 submit on your behalf.
 
 `run moseq extract/aggregate/pca-fit/pca-apply/changepoints/kappa-scan/
-learn-model/master <name>` are thin wrappers around submit_moseq.py's
+learn-model/full-pipeline <name>` are thin wrappers around submit_moseq.py's
 functions -- same submission logic the project notebook can call too, just
 via the CLI instead. All jobs run on the lab's single --exclusive illorent
 node, so these queue strictly sequentially regardless of stage (unlike
 `pull`, which runs on the shared `normal` partition since it's I/O-bound,
-not compute). `run moseq master <name>` chains extract -> aggregate ->
+not compute). `run moseq full-pipeline <name>` chains extract -> aggregate ->
 pca-fit -> pca-apply -> changepoints via --dependency=afterok; kappa-scan/
 learn-model are deliberately NOT included in that chain (picking a kappa
 needs a decision between the scan and the final fit) -- run those two

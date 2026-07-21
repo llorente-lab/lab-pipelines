@@ -132,11 +132,11 @@ _run run moseq learn-model "$TEST_PROJECT" --kappa 500
 _run run moseq learn-model "$TEST_PROJECT" --kappa 500 --exclusive
 _run run moseq learn-model "$TEST_PROJECT" --kappa 500 --cores 32 --mem 200 --time 1-00:00:00
 
-_header "MOSEQ: master (only --exclusive should be accepted; --cores/--mem/--time should be REJECTED by the CLI itself, not by Slurm)"
-_run run moseq master "$TEST_PROJECT"
-_run run moseq master "$TEST_PROJECT" --exclusive
-echo "--- run moseq master $TEST_PROJECT --cores 64  (expect a CLI-level error, not an sbatch call) ---"
-run moseq master "$TEST_PROJECT" --cores 64
+_header "MOSEQ: full-pipeline (only --exclusive should be accepted; --cores/--mem/--time should be REJECTED by the CLI itself, not by Slurm)"
+_run run moseq full-pipeline "$TEST_PROJECT"
+_run run moseq full-pipeline "$TEST_PROJECT" --exclusive
+echo "--- run moseq full-pipeline $TEST_PROJECT --cores 64  (expect a CLI-level error, not an sbatch call) ---"
+run moseq full-pipeline "$TEST_PROJECT" --cores 64
 echo ""
 
 _header "SUMMARY"

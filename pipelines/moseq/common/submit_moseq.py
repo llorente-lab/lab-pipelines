@@ -374,7 +374,7 @@ def submit_learn_model(
     )
 
 
-def submit_master(
+def submit_full_pipeline(
     project_root: str, config_file: str | None = None, exclusive: bool = False
 ) -> dict:
     """Chain extraction -> aggregate -> pca-fit -> pca-apply -> changepoints via afterok dependencies.

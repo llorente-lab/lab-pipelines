@@ -3,8 +3,8 @@
 # aggregate -> PCA fit -> PCA apply -> changepoints -> kappa-scan, submitted
 # and polled for real via Slurm, on Sherlock. Same spirit as
 # miniscope/tests/run_mc_sync_test.sbatch, adapted to Moseq's chained,
-# multi-stage, single-exclusive-node submission model (submit_master() plus
-# one extra kappa-scan call, since submit_master() deliberately doesn't
+# multi-stage, single-exclusive-node submission model (submit_full_pipeline() plus
+# one extra kappa-scan call, since submit_full_pipeline() deliberately doesn't
 # include modeling).
 #
 # Run this directly (not via sbatch) from a login node or an interactive
@@ -114,13 +114,13 @@ apptainer_exec moseq2-extract generate-config -o "$PROJECT_ROOT/config.yaml"
 check "config.yaml written" "$PROJECT_ROOT/config.yaml"
 
 # --- 2. submit the chained extract -> aggregate -> pca_fit -> pca_apply ->
-#        changepoints pipeline via submit_master() ------------------------
+#        changepoints pipeline via submit_full_pipeline() ------------------------
 echo
-echo ">>> submitting master chain (extract -> aggregate -> pca_fit -> pca_apply -> changepoints)"
+echo ">>> submitting full-pipeline chain (extract -> aggregate -> pca_fit -> pca_apply -> changepoints)"
 cd "$MOSEQ_COMMON_DIR"
 JOB_JSON="$(python3 -c "
 import json, submit_moseq
-jobs = submit_moseq.submit_master('$PROJECT_ROOT')
+jobs = submit_moseq.submit_full_pipeline('$PROJECT_ROOT')
 print(json.dumps(jobs))
 ")"
 echo "submitted: $JOB_JSON"
@@ -144,7 +144,7 @@ check "changepoints.h5"             "$PROJECT_ROOT/_pca/changepoints.h5"
 echo "npcs selected (from compute_npcs.py, should be in config.yaml):"
 grep npcs "$PROJECT_ROOT/config.yaml" || echo "  (not found)"
 
-# --- 3. kappa-scan (not part of submit_master() on purpose -- separate,
+# --- 3. kappa-scan (not part of submit_full_pipeline() on purpose -- separate,
 #        explicit step, see submit_moseq.py's docstring) -------------------
 if [ "$FINAL_STATE" = "COMPLETED" ]; then
   echo

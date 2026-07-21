@@ -1,6 +1,6 @@
 #!/bin/bash
 # Assertion-based tests for `run`'s CLI dispatch/argument-validation logic:
-# unknown pipelines/stages, required-argument checks, master's stricter
+# unknown pipelines/stages, required-argument checks, full-pipeline's stricter
 # flag rejection, help output, and (with sbatch stubbed) that a valid
 # invocation actually reaches sbatch with the right script/args. Runs
 # anywhere -- no Slurm, no container, no Sherlock needed -- since `run`
@@ -130,9 +130,9 @@ _assert_contains "$out" "nothing to extract" "run moseq extract on an empty proj
 calls="$(cat "$CAPTURE_FILE")"
 if [ -z "$calls" ]; then _ok "no sbatch call made when nothing needs extraction"; else _fail "sbatch was called even though nothing needed extraction"; fi
 
-out="$("$CLI" moseq master _cli_test_project --cores 8 2>&1)"; code=$?
-_assert_exit_code "$code" 1 "run moseq master --cores is rejected at the CLI level"
-_assert_contains "$out" "only --exclusive is supported" "run moseq master --cores gives the right error"
+out="$("$CLI" moseq full-pipeline _cli_test_project --cores 8 2>&1)"; code=$?
+_assert_exit_code "$code" 1 "run moseq full-pipeline --cores is rejected at the CLI level"
+_assert_contains "$out" "only --exclusive is supported" "run moseq full-pipeline --cores gives the right error"
 
 out="$("$CLI" moseq learn-model _cli_test_project 2>&1)"; code=$?
 _assert_exit_code "$code" 1 "run moseq learn-model without --kappa exits 1"
