@@ -341,6 +341,7 @@ def run_cnmfe(mouse: str, date: str, tp: str, analyzed_base: str):
               f"{cnm_model.estimates.A.shape[1]} components")
 
         cnm_model.estimates.Cn = Cn
+        cnm_model.dview = None  # pool objects can't be pickled
 
         # Save results — all filenames include tp so outputs from different
         # timepoints never collide in the same mouse/date directory.

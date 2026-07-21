@@ -8,12 +8,20 @@ registry fallback when metadata is missing or formula evaluation fails.
 
 Importable by Python callers:
     from estimate_resources import estimate
-    result = estimate("moseq/resources.yaml", "pca-fit", {"n_sessions": 12})
-    # returns: {"partition": "illorent", "exclusive": False, "cores": 8, "mem_gb": 600}
+    result = estimate("pipelines/moseq/resources.yaml", "pca-fit", {"n_sessions": 12})
+    # returns: {"partition": "illorent", "exclusive": False, "cores": 8, "mem_gb": 600, "qos": None}
 
 Also runnable from bash (output is eval-able):
-    eval "$(python3 estimate_resources.py moseq/resources.yaml pca-fit n_sessions=12)"
-    # sets: ESTIMATED_PARTITION, ESTIMATED_CORES, ESTIMATED_MEM_GB, ESTIMATED_EXCLUSIVE
+    eval "$(python3 estimate_resources.py pipelines/moseq/resources.yaml pca-fit n_sessions=12)"
+    # sets: ESTIMATED_PARTITION, ESTIMATED_CORES, ESTIMATED_MEM_GB, ESTIMATED_EXCLUSIVE, ESTIMATED_QOS
+
+`qos` is a plain passthrough from the registry (no formula, no clamping --
+Sherlock's QOS levels are a small fixed set tied to account grants, not
+something worth computing). Omit the `qos` key in resources.yaml for any
+stage that should just use the cluster's default QOS -- ESTIMATED_QOS is
+only set (and only emitted) when a stage explicitly names one, e.g. for a
+stage whose --time exceeds the default QOS's MaxWall and genuinely needs a
+higher one, not as a blanket priority knob.
 """
 
 from __future__ import annotations
@@ -33,7 +41,8 @@ except ImportError:
 def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
     """
     Return resource requirements for `stage` given `metadata`.
-    Keys: partition, exclusive, cores, mem_gb. Missing key = no opinion.
+    Keys: partition, exclusive, cores, mem_gb, qos. Missing key = no opinion
+    (qos in particular is only present when the registry names one explicitly).
     """
     if yaml is None:
         return {}
@@ -53,6 +62,8 @@ def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
         "partition": stage_cfg.get("partition", "illorent"),
         "exclusive": bool(stage_cfg.get("exclusive", False)),
     }
+    if stage_cfg.get("qos"):
+        result["qos"] = stage_cfg["qos"]
     _ns = {"math": math, "min": min, "max": max, "int": int, **metadata}
     for resource in ("cores", "mem_gb"):
         cfg = stage_cfg.get(resource) or {}
@@ -101,6 +112,8 @@ def main() -> None:
     if result.get("mem_gb") is not None:
         print(f"ESTIMATED_MEM_GB={result['mem_gb']}")
     print(f"ESTIMATED_EXCLUSIVE={'true' if result.get('exclusive') else 'false'}")
+    if result.get("qos"):
+        print(f"ESTIMATED_QOS={result['qos']}")
 
 if __name__ == "__main__":
     main()

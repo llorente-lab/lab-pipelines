@@ -11,11 +11,17 @@ parse_session_flags() {
   MOUSE=""
   DATE=""
   TP=""
+  # Whole-node override -- see cli/resources.sh's _force_exclusive. Meant
+  # for a genuinely huge/expensive dataset where it's worth reserving all
+  # of illorent (a single node) for this one run rather than the cores/mem
+  # resources.yaml calibrated for a typical session.
+  EXCLUSIVE=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --mouse) MOUSE="$2"; shift 2 ;;
-      --date)  DATE="$2"; shift 2 ;;
-      --tp)    TP="$2"; shift 2 ;;
+      --mouse)     MOUSE="$2"; shift 2 ;;
+      --date)      DATE="$2"; shift 2 ;;
+      --tp)        TP="$2"; shift 2 ;;
+      --exclusive) EXCLUSIVE="1"; shift ;;
       *) echo "run: unrecognized argument '$1'" >&2; usage; exit 1 ;;
     esac
   done
@@ -54,14 +60,19 @@ cmd_miniscope() {
       parse_session_flags "$@"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
         _set_resource_flags miniscope motion-correction "n_sessions=1"
+      elif [ -n "$MOUSE" ]; then
+        _set_resource_flags miniscope motion-correction
+      else
+        _set_resource_flags miniscope motion-correction
+      fi
+      [ -n "$EXCLUSIVE" ] && _force_exclusive
+      if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
         sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        _set_resource_flags miniscope motion-correction
         sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
       else
-        _set_resource_flags miniscope motion-correction
         sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch"
       fi
@@ -70,33 +81,46 @@ cmd_miniscope() {
       parse_session_flags "$@"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
         _set_resource_flags miniscope cnmfe "n_sessions=1"
+      else
+        _set_resource_flags miniscope cnmfe
+      fi
+      [ -n "$EXCLUSIVE" ] && _force_exclusive
+      if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
         sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        _set_resource_flags miniscope cnmfe
         sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
       else
-        _set_resource_flags miniscope cnmfe
         sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
       fi
       ;;
     master)
+      local exclusive=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --exclusive) exclusive="1"; shift ;;
+          *) echo "run miniscope master: unrecognized argument '$1'" >&2; exit 1 ;;
+        esac
+      done
       _set_resource_flags miniscope master
+      [ -n "$exclusive" ] && _force_exclusive
       sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
         "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
       ;;
     multisession)
-      local mouse="" force_flag=""
+      local mouse="" force_flag="" exclusive=""
       while [ $# -gt 0 ]; do
         case "$1" in
-          --mouse) mouse="$2"; shift 2 ;;
-          --force) force_flag="--force"; shift ;;
+          --mouse)     mouse="$2"; shift 2 ;;
+          --force)     force_flag="--force"; shift ;;
+          --exclusive) exclusive="1"; shift ;;
           *) echo "run miniscope multisession: unrecognized argument '$1'" >&2; exit 1 ;;
         esac
       done
       _set_resource_flags miniscope multisession
+      [ -n "$exclusive" ] && _force_exclusive
       # shellcheck disable=SC2086
       sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
         "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
@@ -188,20 +212,20 @@ miniscope_job_names() {
 miniscope_list_entry() {
   cat <<'EOF'
 miniscope
-  motion-correction   run miniscope motion-correction [--mouse M [--date D --tp T]]
-  cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]]
-  master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E)
-  multisession            run miniscope multisession [--mouse M] [--force]
+  motion-correction   run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive]
+  cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]] [--exclusive]
+  master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E) [--exclusive]
+  multisession            run miniscope multisession [--mouse M] [--force] [--exclusive]
 EOF
 }
 
 # One-line usage for a single stage, used by `run miniscope <stage> --help`.
 miniscope_stage_usage() {
   case "$1" in
-    motion-correction) echo "usage: run miniscope motion-correction [--mouse M [--date D --tp T]]" ;;
-    cnmfe)              echo "usage: run miniscope cnmfe [--mouse M [--date D --tp T]]" ;;
-    master)              echo "usage: run miniscope master  (full sweep, hard-gated MC -> CNMF-E)" ;;
-    multisession)         echo "usage: run miniscope multisession [--mouse M] [--force]" ;;
+    motion-correction) echo "usage: run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive]" ;;
+    cnmfe)              echo "usage: run miniscope cnmfe [--mouse M [--date D --tp T]] [--exclusive]" ;;
+    master)              echo "usage: run miniscope master  (full sweep, hard-gated MC -> CNMF-E) [--exclusive]" ;;
+    multisession)         echo "usage: run miniscope multisession [--mouse M] [--force] [--exclusive]" ;;
     "")
       echo "usage: run miniscope <stage> --help -- but no stage was given. Try 'run miniscope help' for the full list." >&2
       return 1
@@ -215,10 +239,10 @@ miniscope_stage_usage() {
 
 miniscope_help() {
   cat <<'EOF'
-  run miniscope motion-correction [--mouse M [--date D --tp T]]
-  run miniscope cnmfe             [--mouse M [--date D --tp T]]
-  run miniscope master
-  run miniscope multisession          [--mouse M] [--force]
+  run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive]
+  run miniscope cnmfe             [--mouse M [--date D --tp T]] [--exclusive]
+  run miniscope master                                          [--exclusive]
+  run miniscope multisession          [--mouse M] [--force]     [--exclusive]
   run queue miniscope [--mouse M]
   run logs miniscope <stage> [--mouse M --date D --tp T]
 
@@ -226,6 +250,12 @@ Granularity for motion-correction/cnmfe (matches the underlying .sbatch):
   no flags               full sweep, reconciliation-driven
   --mouse M              everything reconciliation finds for that mouse
   --mouse M --date D --tp T   exactly one session, runs directly
+
+--exclusive reserves the whole illorent node (it's a single node) for this
+one run instead of the cores/mem numbers resources.yaml calibrated for a
+typical run of that stage -- worth it for a genuinely huge/expensive
+dataset, not something to reach for by default, since it competes for the
+same shared node as everyone else's --exclusive jobs.
 
 `run miniscope multisession` runs CaImAn multisession registration across all
 CNMF-E sessions for one or all mice. Finds model files from Drive, aligns
@@ -242,6 +272,7 @@ Examples:
   run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
   run miniscope motion-correction --mouse VK_20250101_a
   run miniscope motion-correction
+  run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1 --exclusive
   run miniscope multisession --mouse VK_20250101_a
   run miniscope multisession
   run miniscope multisession --force

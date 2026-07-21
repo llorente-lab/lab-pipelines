@@ -29,15 +29,19 @@ extract/pca, moseq2-model's CLI has no --config-file support at all --
 every modeling parameter is a plain CLI flag/default, nothing is read from
 config.yaml here.
 
-All jobs currently target the lab's single `illorent` node, requested
-`--exclusive` at full size (256 cpus / 1500G, matching that node's actual
-spec) -- there's only one such node, so per-stage resource tiering isn't
-meaningful yet (a "small" job would still hold the whole node exclusively).
-Practical consequence worth knowing: with one exclusive node, jobs run
-strictly one at a time regardless of stage, so submit_extraction()'s
-one-job-per-session parallelism doesn't get concurrent execution today --
-it queues sequentially. Revisit stage-tiered resource requests once there's
-more than one node.
+STALE NOTE, kept as history: this used to say every job targeted illorent
+`--exclusive` at full node size, since per-stage tiering wasn't meaningful
+with only one node, and that extraction queued strictly sequentially as a
+result. That's no longer true. resources.yaml now tiers cores/mem per
+stage (`exclusive: false` by default), and extraction specifically moved
+to a job array on Sherlock's shared `normal` partition (extract_array.sbatch)
+precisely to get real concurrent execution instead of queuing one exclusive
+node's worth of sessions sequentially. `exclusive=True` is still available
+as an explicit per-call override (see _resource_flags below) for someone
+with a genuinely huge dataset who wants to reserve all of illorent for one
+expensive run -- but it's opt-in now, not the default, and extraction
+doesn't honor it (see submit_extraction's own docstring) since illorent
+was never where extraction runs in the first place.
 
 Deliberately NOT using `--cleanenv` on apptainer_exec/apptainer_python (see
 env_setup.sh) -- our whole env-var architecture (MOSEQ_SIF, RCLONE_CONFIG,
@@ -85,13 +89,30 @@ _MOSEQ_REGISTRY = MOSEQ_ROOT_DIR / "resources.yaml"
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
 
 
-def _resource_flags(stage: str, metadata: dict | None = None) -> list[str]:
+def _resource_flags(stage: str, metadata: dict | None = None, exclusive: bool = False) -> list[str]:
     """
-    Compute --partition/--cpus-per-task/--mem/--exclusive from the registry.
-    Returns [] gracefully if the estimator or registry is missing.
+    Compute --partition/--cpus-per-task/--mem/--exclusive/--qos from the
+    registry. Returns [] gracefully if the estimator or registry is missing.
+
+    exclusive=True is a caller-requested override (see submit_*'s own
+    `exclusive` param), not something resources.yaml sets per stage --
+    intended for someone with a genuinely huge dataset who wants to hand
+    one expensive run the whole illorent node (illorent is a single node,
+    so --exclusive there already means "all of illorent"). When set, the
+    formula-derived --cpus-per-task/--mem are deliberately dropped rather
+    than emitted alongside --exclusive: those numbers are calibrated for a
+    TYPICAL run of this stage, and second-guessing an explicit whole-node
+    request with a typical-run number would just be self-defeating. Slurm
+    hands the job everything the node has instead.
+
+    --qos is only ever appended when resources.yaml names one explicitly
+    for this stage (see estimate_resources.py's header) -- e.g. kappa-scan
+    and learn-model, whose --time exceeds the account's default QOS
+    MaxWall and genuinely cannot run without a higher one. Every other
+    stage is left on Sherlock's own default QOS, no override.
     """
     if not _CLI_DIR.exists() or not _MOSEQ_REGISTRY.exists():
-        return []
+        return ["--exclusive"] if exclusive else []
     cli_dir = str(_CLI_DIR)
     if cli_dir not in sys.path:
         sys.path.insert(0, cli_dir)
@@ -99,16 +120,21 @@ def _resource_flags(stage: str, metadata: dict | None = None) -> list[str]:
         from estimate_resources import estimate
         result = estimate(str(_MOSEQ_REGISTRY), stage, metadata or {})
     except Exception:
-        return []
+        return ["--exclusive"] if exclusive else []
     flags: list[str] = []
     if result.get("partition"):
         flags.append(f"--partition={result['partition']}")
-    if result.get("cores") is not None:
-        flags.append(f"--cpus-per-task={result['cores']}")
-    if result.get("mem_gb") is not None:
-        flags.append(f"--mem={result['mem_gb']}G")
-    if result.get("exclusive"):
+    if exclusive:
         flags.append("--exclusive")
+    else:
+        if result.get("cores") is not None:
+            flags.append(f"--cpus-per-task={result['cores']}")
+        if result.get("mem_gb") is not None:
+            flags.append(f"--mem={result['mem_gb']}G")
+        if result.get("exclusive"):
+            flags.append("--exclusive")
+    if result.get("qos"):
+        flags.append(f"--qos={result['qos']}")
     return flags
 
 
@@ -198,6 +224,7 @@ def submit_extraction(
     project_root: str,
     config_file: str | None = None,
     use_array: bool = True,
+    exclusive: bool = False,
 ) -> list[str]:
     """
     Submit extraction jobs. Returns job ID(s) as a list (for dependency
@@ -215,6 +242,18 @@ def submit_extraction(
 
     use_array=False: one job looping all sessions sequentially
         (extract.sbatch). The original path, kept as a fallback.
+
+    exclusive is accepted but deliberately IGNORED here, for both branches
+    -- extraction always targets Sherlock's shared `normal` partition, not
+    illorent (see extract_array.sbatch's own header), specifically so
+    sessions extract concurrently across the shared pool instead of
+    queuing one at a time for a single exclusive node. Honoring
+    exclusive=True here would mean each array task grabs a whole
+    normal-partition node for itself, undoing that concurrency for no
+    benefit (extraction is lightweight fan-out work, not the kind of job
+    --exclusive is for). The parameter still exists so submit_master()
+    can pass exclusive=... uniformly to every stage without a special
+    case; it's just a no-op for this one.
     """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
@@ -223,6 +262,9 @@ def submit_extraction(
     if not sessions:
         return []
 
+    # exclusive intentionally not passed through -- see this function's
+    # docstring on why extraction never honors it, in either branch (both
+    # target the `normal` partition, not illorent).
     res = _resource_flags("extract", {"n_sessions": len(sessions)})
 
     if not use_array:
@@ -266,7 +308,9 @@ def submit_extraction(
     return [job_id]
 
 
-def submit_aggregate(project_root: str, depends_on: list[str] | None = None) -> str:
+def submit_aggregate(
+    project_root: str, depends_on: list[str] | None = None, exclusive: bool = False
+) -> str:
     """
     Consolidates every session's proc/ output into aggregate_results/ and
     (re)generates moseq2-index.yaml. Pass the job IDs from
@@ -280,7 +324,7 @@ def submit_aggregate(project_root: str, depends_on: list[str] | None = None) -> 
     return _sbatch(
         script, project_root,
         sbatch_flags=_sbatch_flags(project_root, "aggregate", depends_on)
-        + _resource_flags("aggregate"),
+        + _resource_flags("aggregate", exclusive=exclusive),
     )
 
 
@@ -288,6 +332,7 @@ def submit_pca_fit(
     project_root: str,
     config_file: str | None = None,
     depends_on: list[str] | None = None,
+    exclusive: bool = False,
 ) -> str:
     """Fits PCA across the whole aggregated session batch (see pca_fit.sbatch)."""
     project_root = str(Path(project_root).resolve())
@@ -297,7 +342,7 @@ def submit_pca_fit(
     return _sbatch(
         script, project_root, config_file,
         sbatch_flags=_sbatch_flags(project_root, "pca_fit", depends_on)
-        + _resource_flags("pca-fit", {"n_sessions": n} if n is not None else {}),
+        + _resource_flags("pca-fit", {"n_sessions": n} if n is not None else {}, exclusive=exclusive),
     )
 
 
@@ -306,6 +351,7 @@ def submit_pca_apply(
     config_file: str | None = None,
     pca_file: str | None = None,
     depends_on: list[str] | None = None,
+    exclusive: bool = False,
 ) -> str:
     """
     Projects extracted sessions onto an already-fit PCA basis (see
@@ -320,7 +366,7 @@ def submit_pca_apply(
     return _sbatch(
         script, project_root, config_file, pca_file,
         sbatch_flags=_sbatch_flags(project_root, "pca_apply", depends_on)
-        + _resource_flags("pca-apply", {"n_sessions": n} if n is not None else {}),
+        + _resource_flags("pca-apply", {"n_sessions": n} if n is not None else {}, exclusive=exclusive),
     )
 
 
@@ -330,6 +376,7 @@ def submit_compute_changepoints(
     pca_file_components: str | None = None,
     pca_file_scores: str | None = None,
     depends_on: list[str] | None = None,
+    exclusive: bool = False,
 ) -> str:
     """
     Model-free syllable changepoints from PCA scores (see
@@ -350,7 +397,7 @@ def submit_compute_changepoints(
         pca_file_components,
         pca_file_scores,
         sbatch_flags=_sbatch_flags(project_root, "changepoints", depends_on)
-        + _resource_flags("changepoints", {"n_sessions": n} if n is not None else {}),
+        + _resource_flags("changepoints", {"n_sessions": n} if n is not None else {}, exclusive=exclusive),
     )
 
 
@@ -362,6 +409,7 @@ def submit_kappa_scan(
     max_kappa: float | None = None,
     num_iter: int = 100,
     depends_on: list[str] | None = None,
+    exclusive: bool = False,
 ) -> str:
     """
     Trains n_models models scanning kappa (see kappa_scan.sbatch), one
@@ -385,7 +433,7 @@ def submit_kappa_scan(
     return _sbatch(
         script, *args,
         sbatch_flags=_sbatch_flags(project_root, "kappa_scan", depends_on)
-        + _resource_flags("kappa-scan", {"n_models": n_models, "num_iter": num_iter}),
+        + _resource_flags("kappa-scan", {"n_models": n_models, "num_iter": num_iter}, exclusive=exclusive),
     )
 
 
@@ -395,6 +443,7 @@ def submit_learn_model(
     num_iter: int = 1000,
     dest_name: str = "model.p",
     depends_on: list[str] | None = None,
+    exclusive: bool = False,
 ) -> str:
     """
     Trains a single final model at a chosen kappa (see learn_model.sbatch).
@@ -412,11 +461,13 @@ def submit_learn_model(
         str(num_iter),
         dest_name,
         sbatch_flags=_sbatch_flags(project_root, "learn_model", depends_on)
-        + _resource_flags("learn-model", {"num_iter": num_iter}),
+        + _resource_flags("learn-model", {"num_iter": num_iter}, exclusive=exclusive),
     )
 
 
-def submit_master(project_root: str, config_file: str | None = None) -> dict:
+def submit_master(
+    project_root: str, config_file: str | None = None, exclusive: bool = False
+) -> dict:
     """
     Chains everything currently implemented: extraction (per session) ->
     aggregate -> pca-fit -> pca-apply -> compute-changepoints, each stage
@@ -428,16 +479,31 @@ def submit_master(project_root: str, config_file: str | None = None) -> dict:
     submit_kappa_scan()/submit_learn_model() separately once changepoints
     are in.
 
+    exclusive=True applies to every stage in the chain -- intended for a
+    genuinely huge/expensive dataset where it's worth reserving the whole
+    illorent node for the entire run rather than sharing it stage by
+    stage. Note this does NOT affect extraction: that stage always targets
+    Sherlock's shared `normal` partition (a fan-out job array, see
+    extract_array.sbatch), not illorent, regardless of this flag --
+    --exclusive there would reserve a whole normal-partition node PER
+    array task, which is not what "give this run all of illorent" means.
+
     Returns a dict of stage name -> job ID(s) so a caller (CLI or
     notebook) can print/track them, e.g. via `run moseq status` or
     `run moseq logs`.
     """
     extraction_jobs = submit_extraction(project_root, config_file)
-    aggregate_job = submit_aggregate(project_root, depends_on=extraction_jobs or None)
-    pca_fit_job = submit_pca_fit(project_root, config_file, depends_on=[aggregate_job])
-    pca_apply_job = submit_pca_apply(project_root, config_file, depends_on=[pca_fit_job])
+    aggregate_job = submit_aggregate(
+        project_root, depends_on=extraction_jobs or None, exclusive=exclusive
+    )
+    pca_fit_job = submit_pca_fit(
+        project_root, config_file, depends_on=[aggregate_job], exclusive=exclusive
+    )
+    pca_apply_job = submit_pca_apply(
+        project_root, config_file, depends_on=[pca_fit_job], exclusive=exclusive
+    )
     changepoints_job = submit_compute_changepoints(
-        project_root, config_file, depends_on=[pca_apply_job]
+        project_root, config_file, depends_on=[pca_apply_job], exclusive=exclusive
     )
     return {
         "extraction": extraction_jobs,

@@ -36,11 +36,41 @@ _set_resource_flags() {
     return 0
   fi
 
-  unset ESTIMATED_PARTITION ESTIMATED_CORES ESTIMATED_MEM_GB ESTIMATED_EXCLUSIVE
+  unset ESTIMATED_PARTITION ESTIMATED_CORES ESTIMATED_MEM_GB ESTIMATED_EXCLUSIVE ESTIMATED_QOS
   eval "$estimates" 2>/dev/null || true
 
   if [ -n "${ESTIMATED_PARTITION:-}" ];                      then RESOURCE_FLAGS+=("--partition=$ESTIMATED_PARTITION"); fi
   if [ -n "${ESTIMATED_CORES:-}" ];                          then RESOURCE_FLAGS+=("--cpus-per-task=$ESTIMATED_CORES"); fi
   if [ -n "${ESTIMATED_MEM_GB:-}" ];                        then RESOURCE_FLAGS+=("--mem=${ESTIMATED_MEM_GB}G"); fi
   if [ "${ESTIMATED_EXCLUSIVE:-false}" = "true" ];           then RESOURCE_FLAGS+=("--exclusive"); fi
+  # Only ever set when resources.yaml names one explicitly for this stage
+  # (see estimate_resources.py's header) -- e.g. a stage whose --time
+  # exceeds the account's default QOS MaxWall and genuinely needs a higher
+  # one. Not emitted otherwise, so every other stage keeps using Sherlock's
+  # own default QOS with no override.
+  if [ -n "${ESTIMATED_QOS:-}" ];                            then RESOURCE_FLAGS+=("--qos=$ESTIMATED_QOS"); fi
+}
+
+# Call after _set_resource_flags to override with a whole-node request --
+# e.g. a genuinely huge dataset where it's worth reserving all of illorent
+# (a single node) for one expensive run, rather than the cores/mem numbers
+# resources.yaml calibrated for a typical run of that stage. Strips any
+# --cpus-per-task/--mem already in RESOURCE_FLAGS (second-guessing an
+# explicit whole-node request with a typical-run number would be
+# self-defeating -- Slurm hands the job everything the node has instead)
+# and ensures --exclusive is present exactly once.
+#
+# Usage:
+#   _set_resource_flags miniscope motion-correction "n_sessions=1"
+#   [ "$want_exclusive" = "1" ] && _force_exclusive
+_force_exclusive() {
+  local flag kept=()
+  for flag in ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"}; do
+    case "$flag" in
+      --cpus-per-task=*|--mem=*|--exclusive) continue ;;
+      *) kept+=("$flag") ;;
+    esac
+  done
+  kept+=("--exclusive")
+  RESOURCE_FLAGS=("${kept[@]}")
 }

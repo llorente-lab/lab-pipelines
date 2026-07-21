@@ -11,6 +11,19 @@
 #   learn-model:                num_iter (from CLI args)
 #
 # Formulas are PLACEHOLDERS pending calibration from the benchmarking harness.
+#
+# qos: optional per stage, omitted = Sherlock's own default QOS, no override.
+# Set explicitly on kappa-scan/learn-model below because their --time
+# genuinely exceeds the illorent account's default (`normal`) QOS MaxWall
+# (2 days) -- not optional tuning, they cannot complete without a QOS that
+# allows a longer walltime. `high_p` is the only other QOS this account
+# currently has (see `sacctmgr show assoc`/`show qos` on Sherlock), and it
+# also carries a MaxJobsPU=4 cap -- fine for the handful of long-running
+# jobs a lab member typically has in flight at once, but don't default
+# every stage to it just for the priority boost, that budget is shared
+# across everyone using it concurrently. pca-fit's 2-day --time sits
+# exactly at normal QOS's MaxWall boundary -- not a violation today, but
+# worth revisiting if that stage's time budget ever grows.
 
 stages:
   extract:
@@ -88,6 +101,9 @@ stages:
   kappa-scan:
     partition: illorent
     exclusive: false
+    # --time=7-00:00:00 (see kappa_scan.sbatch) exceeds normal QOS's 2-day
+    # MaxWall -- this job cannot complete without high_p.
+    qos: high_p
     cores:
       # ARHMM resampling is CPU-bound; n_models * num_iter drives total compute.
       formula: "min(128, max(16, n_models * num_iter // 50))"
@@ -103,6 +119,9 @@ stages:
   learn-model:
     partition: illorent
     exclusive: false
+    # --time=3-00:00:00 (see learn_model.sbatch) exceeds normal QOS's
+    # 2-day MaxWall -- this job cannot complete without high_p.
+    qos: high_p
     cores:
       formula: "min(64, max(16, num_iter // 20))"
       min: 16
