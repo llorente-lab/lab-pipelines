@@ -59,13 +59,14 @@ moseq_job_init() {
   PROJECT_ROOT="$(cd "$project_root" && pwd)"
 
   _JOB_START="$(date -Iseconds)"
+  _STAGE="$stage"
   _STATUS_FILE="$PROJECT_ROOT/status/${stage}.json"
   mkdir -p "$PROJECT_ROOT/status"
   _record_status() {
     local rc=$?
     local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
     printf '{"stage":"%s","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
-      "$stage" "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
+      "$_STAGE" "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
       "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
   }
   trap _record_status EXIT
