@@ -47,6 +47,12 @@ mkdir -p "$FAKE_BIN"
 cat > "$FAKE_BIN/sbatch" <<'WRAPPER'
 #!/bin/bash
 echo "$*" >> "$SBATCH_CAPTURE_FILE"
+for a in "$@"; do
+  if [ "$a" = "--parsable" ]; then
+    echo "999999"
+    exit 0
+  fi
+done
 echo "Submitted batch job 999999"
 WRAPPER
 chmod +x "$FAKE_BIN/sbatch"
@@ -132,6 +138,22 @@ out="$("$CLI" moseq learn-model _cli_test_project 2>&1)"; code=$?
 _assert_exit_code "$code" 1 "run moseq learn-model without --kappa exits 1"
 _assert_contains "$out" "--kappa is required" "run moseq learn-model reports missing --kappa"
 
+out="$("$CLI" moseq aggregate _cli_test_project 2>&1)"; code=$?
+_assert_exit_code "$code" 0 "run moseq aggregate exits 0"
+jobs_file="$GROUP_SCRATCH/Moseq/_cli_test_project/status/jobs.jsonl"
+if [ -f "$jobs_file" ] && grep -q '"stage": "aggregate"' "$jobs_file"; then
+  _ok "run moseq aggregate records a jobs.jsonl entry"
+else
+  _fail "run moseq aggregate should have written $jobs_file with stage=aggregate"
+fi
+
+out="$("$CLI" moseq dashboard _cli_test_project 2>&1)"; code=$?
+_assert_exit_code "$code" 0 "run moseq dashboard exits 0"
+_assert_contains "$out" "aggregate" "run moseq dashboard lists the aggregate job"
+
+out="$("$CLI" moseq dashboard nonexistent_project 2>&1)"; code=$?
+_assert_exit_code "$code" 1 "run moseq dashboard <missing project> exits 1"
+
 rm -rf "${GROUP_SCRATCH:?}/Moseq/_cli_test_project" 2>/dev/null
 
 echo ""
@@ -158,6 +180,20 @@ _assert_contains "$call" "motion_correction.sbatch" "the correct .sbatch script 
 _assert_contains "$call" "dryrun_mouse" "the mouse argument reaches sbatch"
 _assert_contains "$call" "2025-01-01" "the date argument reaches sbatch"
 _assert_contains "$call" "tp1" "the tp argument reaches sbatch"
+
+jobs_file="$GROUP_SCRATCH/Miniscope/AnalyzedData/dryrun_mouse/2025-01-01/tp1/status/jobs.jsonl"
+if [ -f "$jobs_file" ] && grep -q '"stage":"motion-correction"' "$jobs_file"; then
+  _ok "run miniscope motion-correction records a jobs.jsonl entry"
+else
+  _fail "run miniscope motion-correction should have written $jobs_file with stage=motion-correction"
+fi
+
+out="$("$CLI" miniscope dashboard --mouse dryrun_mouse 2>&1)"; code=$?
+_assert_exit_code "$code" 0 "run miniscope dashboard --mouse exits 0"
+_assert_contains "$out" "motion-correction" "run miniscope dashboard lists the motion-correction job"
+
+out="$("$CLI" miniscope dashboard --mouse nonexistent_mouse 2>&1)"; code=$?
+_assert_exit_code "$code" 1 "run miniscope dashboard --mouse <missing mouse> exits 1"
 
 echo ""
 echo "=================================================================="

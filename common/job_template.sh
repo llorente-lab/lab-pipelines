@@ -8,8 +8,11 @@
 #     $0, so it's always correct for whichever script sourced this)
 #   - resolves $PROJECT_ROOT to an absolute path (re-exported as a global,
 #     same variable name every stage script already used)
-#   - sets up <project_root>/status/<stage>.json + the EXIT trap that
-#     writes completed/failed to it
+#   - sets up <project_root>/status/<stage>.json (latest run only, kept for
+#     backward compat) + <project_root>/status/history.jsonl (append-only,
+#     every run ever) via the EXIT trap that writes completed/failed to
+#     both. Shared by every pipeline that sources this file, so both
+#     moseq and miniscope get run history for free.
 
 _JOB_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
@@ -33,13 +36,17 @@ job_init() {
   _JOB_START="$(date -Iseconds)"
   _STAGE="$stage"
   _STATUS_FILE="$PROJECT_ROOT/status/${stage}.json"
+  _HISTORY_FILE="$PROJECT_ROOT/status/history.jsonl"
   mkdir -p "$PROJECT_ROOT/status"
   _record_status() {
     local rc=$?
     local st; st="$([ "$rc" -eq 0 ] && echo completed || echo failed)"
-    printf '{"stage":"%s","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}\n' \
+    local record
+    record="$(printf '{"stage":"%s","status":"%s","start_time":"%s","end_time":"%s","exit_code":%d,"node":"%s","job_id":"%s"}' \
       "$_STAGE" "$st" "$_JOB_START" "$(date -Iseconds)" "$rc" \
-      "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}" > "$_STATUS_FILE"
+      "${SLURMD_NODENAME:-}" "${SLURM_JOB_ID:-}")"
+    echo "$record" > "$_STATUS_FILE"
+    echo "$record" >> "$_HISTORY_FILE"
   }
   trap _record_status EXIT
 

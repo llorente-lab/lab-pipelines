@@ -16,22 +16,12 @@ Also runnable from bash (one flag per line, feed to `mapfile`):
         pipelines/moseq/resources.yaml pca-fit n_sessions=12 \\
         --exclusive --cores 8 --mem 200 --time 1-00:00:00)
 Used by cli/resources.sh for miniscope's sbatch calls.
-
-A stage whose registry entry sets `gpus` gets --partition=<gpu_partition>
---gpus=N automatically; pass --no-gpu (or gpu=False in Python) to force
-that stage onto its plain CPU partition instead, with a warning.
 """
 
 from __future__ import annotations
 import math
 import sys
 from pathlib import Path
-
-# Sherlock's shared GPU partition, open to anyone with a Sherlock account
-# (not illorent-specific) -- see https://www.sherlock.stanford.edu docs'
-# "GPU nodes" section. GPU jobs there are requested with --gpus/-G, not
-# --gres=gpu:N.
-SHERLOCK_GPU_PARTITION = "gpu"
 
 try:
     import yaml
@@ -45,14 +35,7 @@ except ImportError:
 def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
     """
     Return resource requirements for `stage` given `metadata`.
-    Keys: partition, exclusive, cores, mem_gb, gpus, gpu_partition.
-    Missing key = no opinion.
-
-    gpus is a plain passthrough count (Sherlock's GPU accounting is a fixed
-    device count per job, not something worth estimating from dataset
-    size), requested via --gpus on gpu_partition (defaults to Sherlock's
-    shared `gpu` partition, open to anyone -- see SHERLOCK_GPU_PARTITION).
-    Stages that don't need a GPU just omit `gpus` entirely.
+    Keys: partition, exclusive, cores, mem_gb. Missing key = no opinion.
     """
     if yaml is None:
         return {}
@@ -72,9 +55,6 @@ def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
         "partition": stage_cfg.get("partition", "illorent"),
         "exclusive": bool(stage_cfg.get("exclusive", False)),
     }
-    if stage_cfg.get("gpus"):
-        result["gpus"] = int(stage_cfg["gpus"])
-        result["gpu_partition"] = stage_cfg.get("gpu_partition", SHERLOCK_GPU_PARTITION)
     _ns = {"math": math, "min": min, "max": max, "int": int, **metadata}
     for resource in ("cores", "mem_gb"):
         cfg = stage_cfg.get(resource) or {}
@@ -107,46 +87,23 @@ def resource_flags(
     cores: int | None = None,
     mem_gb: int | None = None,
     time: str | None = None,
-    gpu: bool = True,
 ) -> list[str]:
     """
-    Compute --partition/--cpus-per-task/--mem/--exclusive/--gpus/--time
-    sbatch flags for one stage. Combines the registry's estimate() with
-    explicit overrides -- the single implementation both moseq (calls this
-    directly) and miniscope (calls it via this module's CLI, see
-    cli/resources.sh) use.
+    Compute --partition/--cpus-per-task/--mem/--exclusive/--time sbatch
+    flags for one stage. Combines the registry's estimate() with explicit
+    overrides -- the single implementation both moseq (calls this directly)
+    and miniscope (calls it via this module's CLI, see cli/resources.sh) use.
 
     exclusive=True drops the formula-derived --cpus-per-task/--mem (those
     are calibrated for a typical run, not a whole-node request) and adds
     --exclusive instead. cores/mem_gb/time are explicit per-invocation
     overrides that always win, even combined with exclusive=True.
-
-    gpu=True (default): if the registry wants a GPU for this stage
-    (`gpus` set), honor it -- overrides `partition` with `gpu_partition`
-    and adds --gpus=N. gpu=False forces the stage's plain CPU partition/
-    cores/mem instead, even if the registry wants a GPU, and prints a
-    warning to stderr -- an explicit, visible fallback (e.g. for testing
-    without GPU queue access, or if the gpu partition is backed up) rather
-    than a silent one.
     """
     result = estimate(resources_yaml, stage, metadata or {})
 
     flags: list[str] = []
-    wants_gpu = gpu and result.get("gpus")
-    if not gpu and result.get("gpus"):
-        print(
-            f"warning: stage '{stage}' normally requests a GPU "
-            f"(--gpus={result['gpus']} on partition '{result.get('gpu_partition')}'); "
-            f"running on CPU only ('{result.get('partition')}') instead -- expect it to be slower.",
-            file=sys.stderr,
-        )
-
-    if wants_gpu:
-        flags.append(f"--partition={result['gpu_partition']}")
-        flags.append(f"--gpus={result['gpus']}")
-    elif result.get("partition"):
+    if result.get("partition"):
         flags.append(f"--partition={result['partition']}")
-
     if exclusive:
         flags.append("--exclusive")
 
@@ -168,7 +125,7 @@ def main() -> None:
     if len(sys.argv) < 3:
         print(
             "usage: estimate_resources.py <resources.yaml> <stage> [key=value ...] "
-            "[--exclusive] [--cores N] [--mem N] [--time T] [--no-gpu]",
+            "[--exclusive] [--cores N] [--mem N] [--time T]",
             file=sys.stderr,
         )
         sys.exit(1)
@@ -178,7 +135,6 @@ def main() -> None:
     cores: int | None = None
     mem_gb: int | None = None
     time: str | None = None
-    gpu = True
 
     args = sys.argv[3:]
     i = 0
@@ -196,9 +152,6 @@ def main() -> None:
         elif tok == "--time":
             time = args[i + 1]
             i += 2
-        elif tok == "--no-gpu":
-            gpu = False
-            i += 1
         elif "=" in tok:
             k, v = tok.split("=", 1)
             try:
@@ -214,7 +167,7 @@ def main() -> None:
 
     for flag in resource_flags(
         resources_yaml, stage, metadata,
-        exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time, gpu=gpu,
+        exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
     ):
         print(flag)
 

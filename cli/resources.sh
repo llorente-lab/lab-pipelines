@@ -42,3 +42,23 @@ _apply_resource_overrides() {
       ${_RF_METADATA[@]+"${_RF_METADATA[@]}"} "${extra[@]}" 2>/dev/null
   )
 }
+
+# Wraps `sbatch --parsable` so bash-submitting pipelines (miniscope) get the
+# same job-ID tracking moseq's Python _sbatch() has. Prints "Submitted batch
+# job <id>" (matching plain `sbatch`'s own message, since --parsable's raw
+# output replaces it) and, if job_log_dir is non-empty, appends a record to
+# <job_log_dir>/jobs.jsonl -- read by common/dashboard.py.
+#
+# Usage: _sbatch_submit <job_log_dir|""> <stage> [sbatch args...]
+_sbatch_submit() {
+  local job_log_dir="$1" stage="$2"; shift 2
+  local job_id
+  job_id="$(sbatch --parsable "$@")" || return 1
+  job_id="${job_id%%;*}"  # --parsable prints "jobid;cluster" on federated setups
+  echo "Submitted batch job $job_id"
+  if [ -n "$job_log_dir" ]; then
+    mkdir -p "$job_log_dir"
+    printf '{"job_id":"%s","stage":"%s","submitted_at":"%s"}\n' \
+      "$job_id" "$stage" "$(date -Iseconds)" >> "$job_log_dir/jobs.jsonl"
+  fi
+}

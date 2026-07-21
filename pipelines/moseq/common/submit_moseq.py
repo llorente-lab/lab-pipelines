@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from reconcile_moseq_extraction import sessions_needing_extraction
@@ -76,12 +78,28 @@ def _log_flags(project_root: str, stage: str) -> list[str]:
     ]
 
 
+def _record_job(project_root: str, stage: str, job_id: str) -> None:
+    """Append one line to <project_root>/status/jobs.jsonl -- read by `run moseq dashboard`
+    (common/dashboard.py) and cross-referenced against live squeue state / history.jsonl."""
+    status_dir = Path(project_root) / "status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+    record = {
+        "job_id": job_id,
+        "stage": stage,
+        "submitted_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    with open(status_dir / "jobs.jsonl", "a") as f:
+        f.write(json.dumps(record) + "\n")
+
+
 def _sbatch(
     script: Path,
     *positional_args: str,
     sbatch_flags: list[str] | None = None,
+    record_job: tuple[str, str] | None = None,
 ) -> str:
-    """Submit one job via sbatch, return its job ID."""
+    """Submit one job via sbatch, return its job ID. If record_job=(project_root, stage) is
+    given, also append the submission to that project's status/jobs.jsonl."""
     cmd = ["sbatch", *(sbatch_flags or []), str(script), *positional_args]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -96,7 +114,10 @@ def _sbatch(
             f"sbatch succeeded (exit 0) but didn't return a recognizable job ID. "
             f"stdout was: {result.stdout!r}, stderr was: {result.stderr!r}"
         )
-    return match.group(1) or match.group(2)
+    job_id = match.group(1) or match.group(2)
+    if record_job is not None:
+        _record_job(record_job[0], record_job[1], job_id)
+    return job_id
 
 
 def _dependency_flags(depends_on: list[str] | None) -> list[str]:
@@ -138,6 +159,7 @@ def _submit_stage(
         script, *positional_args,
         sbatch_flags=_sbatch_flags(project_root, log_stage, depends_on)
         + _resource_flags(resource_stage, metadata, exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time),
+        record_job=(project_root, log_stage),
     )
 
 
@@ -168,6 +190,7 @@ def submit_extraction(
             _sbatch(
                 script, project_root, config_file,
                 sbatch_flags=_sbatch_flags(project_root, "extract", None) + res,
+                record_job=(project_root, "extract"),
             )
         ]
 
@@ -195,6 +218,7 @@ def submit_extraction(
             *_mail_flags(),
             *res,
         ],
+        record_job=(project_root, "extract"),
     )
 
     # afterany so validation runs and reports on partial failures too.
@@ -204,6 +228,7 @@ def submit_extraction(
         sbatch_flags=_log_flags(project_root, "validate_extractions")
         + [f"--dependency=afterany:{job_id}"]
         + _mail_flags(),
+        record_job=(project_root, "validate_extractions"),
     )
 
     return [job_id]

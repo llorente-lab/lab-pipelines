@@ -56,13 +56,16 @@ cmd_miniscope() {
       [ -n "$EXCLUSIVE" ] && _force_exclusive
       _apply_resource_overrides "$CORES" "$MEM" "$WALLTIME"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
-        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        _sbatch_submit "$(analyzed_base)/$MOUSE/$DATE/$TP/status" motion-correction \
+          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        _sbatch_submit "$(analyzed_base)/$MOUSE/status" motion-correction \
+          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
       else
-        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        _sbatch_submit "$(analyzed_base)/status" motion-correction \
+          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch"
       fi
       ;;
@@ -76,13 +79,16 @@ cmd_miniscope() {
       [ -n "$EXCLUSIVE" ] && _force_exclusive
       _apply_resource_overrides "$CORES" "$MEM" "$WALLTIME"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
-        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        _sbatch_submit "$(analyzed_base)/$MOUSE/$DATE/$TP/status" cnmfe \
+          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        _sbatch_submit "$(analyzed_base)/$MOUSE/status" cnmfe \
+          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
       else
-        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        _sbatch_submit "$(analyzed_base)/status" cnmfe \
+          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
       fi
       ;;
@@ -100,7 +106,8 @@ cmd_miniscope() {
       _set_resource_flags miniscope master
       [ -n "$exclusive" ] && _force_exclusive
       _apply_resource_overrides "$cores" "$mem" "$walltime"
-      sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+      _sbatch_submit "$(analyzed_base)/status" master \
+        ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
         "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
       ;;
     multisession)
@@ -120,12 +127,29 @@ cmd_miniscope() {
       [ -n "$exclusive" ] && _force_exclusive
       _apply_resource_overrides "$cores" "$mem" "$walltime"
       # shellcheck disable=SC2086
-      sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+      _sbatch_submit "$(analyzed_base)/status" multisession \
+        ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
         "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
         ${mouse:+--mouse "$mouse"} $force_flag
       ;;
+    dashboard)
+      local mouse="${1-}"
+      if [ -n "$mouse" ] && [ "$mouse" != "--mouse" ]; then
+        echo "run miniscope dashboard: usage: run miniscope dashboard [--mouse M]" >&2
+        exit 1
+      fi
+      [ "$mouse" = "--mouse" ] && mouse="${2-}"
+      local search_dir
+      search_dir="$(analyzed_base)"
+      [ -n "$mouse" ] && search_dir="$search_dir/$mouse"
+      if [ ! -d "$search_dir" ]; then
+        echo "run miniscope dashboard: no data found under $search_dir" >&2
+        exit 1
+      fi
+      python3 "$REPO_COMMON_DIR/dashboard.py" "$search_dir"
+      ;;
     "")
-      echo "run: missing stage -- try 'motion-correction', 'cnmfe', 'master', or 'multisession'" >&2
+      echo "run: missing stage -- try 'motion-correction', 'cnmfe', 'master', 'multisession', or 'dashboard'" >&2
       exit 1
       ;;
     *)
@@ -209,6 +233,7 @@ miniscope
   cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]] [--exclusive | --cores N --mem MEM --time T]
   master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E) [--exclusive | --cores N --mem MEM --time T]
   multisession            run miniscope multisession [--mouse M] [--force] [--exclusive | --cores N --mem MEM --time T]
+  dashboard                run miniscope dashboard [--mouse M]
 EOF
 }
 
@@ -218,6 +243,7 @@ miniscope_stage_usage() {
     cnmfe)              echo "usage: run miniscope cnmfe [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     master)              echo "usage: run miniscope master  (full sweep, hard-gated MC -> CNMF-E) [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     multisession)         echo "usage: run miniscope multisession [--mouse M] [--force] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    dashboard)            echo "usage: run miniscope dashboard [--mouse M]" ;;
     "")
       echo "usage: run miniscope <stage> --help -- but no stage was given. Try 'run miniscope help' for the full list." >&2
       return 1
@@ -235,6 +261,7 @@ miniscope_help() {
   run miniscope cnmfe             [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]
   run miniscope master                                          [--exclusive] [--cores N] [--mem MEM] [--time T]
   run miniscope multisession          [--mouse M] [--force]     [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run miniscope dashboard [--mouse M]
   run queue miniscope [--mouse M]
   run logs miniscope <stage> [--mouse M --date D --tp T]
 
@@ -270,6 +297,13 @@ continues if not all sessions for a mouse have been modeled yet.
 `run queue miniscope` is a dry run -- shows exactly which sessions
 reconciliation currently thinks need motion correction or are ready for
 CNMF-E, without submitting anything.
+
+`run miniscope dashboard [--mouse M]` prints one row per job submitted
+through this CLI (from status/jobs.jsonl next to each job's output, written
+at submission time), with stage, submitted time, and current state -- live
+state comes from `squeue -j`, otherwise from status/history.jsonl (written
+by job_template.sh when a job finishes). Without --mouse, scans everything
+under $MINISCOPE_ANALYZED_BASE; with --mouse, scans just that mouse's tree.
 
 Examples:
   run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1

@@ -359,6 +359,11 @@ if $MOSEQ_EXCLUSIVE:
     print('      the shared normal partition (a job array), not illorent -- see submit_master()\'s docstring.')
 "
       ;;
+    dashboard)
+      local name="${1-}"; shift || true
+      local project_dir; project_dir="$(moseq_require_project "$name")"
+      python3 "$REPO_COMMON_DIR/dashboard.py" "$project_dir"
+      ;;
     check-progress)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
@@ -381,7 +386,7 @@ print('  best model selected: ', best_model_is_selected('$project_dir', progress
 "
       ;;
     "")
-      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'jupyter-info', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', or 'check-progress'" >&2
+      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'jupyter-info', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', 'check-progress', or 'dashboard'" >&2
       exit 1
       ;;
     *)
@@ -449,6 +454,7 @@ moseq
   learn-model <name>  --kappa K [--num-iter --dest-name]  (final model fit) [--exclusive|--cores N|--mem MEM|--time T]
   master <name>       chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints [--exclusive only]
   check-progress <name>  dry run: what's left to do for this project
+  dashboard <name>    table of every submitted job (stage, submitted time, live/finished state)
 EOF
 }
 
@@ -467,6 +473,7 @@ moseq_stage_usage() {
     learn-model)    echo "usage: run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     master)         echo "usage: run moseq master <project_name> [--exclusive]  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints; --cores/--mem/--time not supported here)" ;;
     check-progress) echo "usage: run moseq check-progress <project_name>" ;;
+    dashboard)      echo "usage: run moseq dashboard <project_name>" ;;
     "")
       echo "usage: run moseq <stage> --help -- but no stage was given. Try 'run moseq help' for the full list." >&2
       return 1
@@ -493,6 +500,7 @@ moseq_help() {
   run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]
   run moseq master <project_name> [--exclusive]
   run moseq check-progress <project_name>
+  run moseq dashboard <project_name>
   run logs moseq <stage> <project_name>
 
 --exclusive reserves the whole illorent node (it's a single node) for that
@@ -568,5 +576,13 @@ is a dry run showing what's left to do for one project (extraction status is
 instant/host-side; PCA/modeling status needs the container and may take a
 moment). `run moseq logs <stage> <name>` (or `run logs moseq <stage>
 <name>`) tails that stage's most recent log under <project>/slurm_logs/.
+
+`run moseq dashboard <name>` prints one row per job ever submitted for that
+project (from <project>/status/jobs.jsonl, written at submission time),
+showing stage, submitted time, and current state -- live state comes from
+`squeue -j` if the job is still queued/running, otherwise from
+<project>/status/history.jsonl (written by job_template.sh when a job
+finishes). Falls back to "unknown" if neither source has the job (e.g. it
+predates this tracking, or squeue is unavailable).
 EOF
 }

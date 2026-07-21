@@ -27,7 +27,7 @@ edit is needed -- both discover pipelines from the manifest.
 
 ## For lab members: running pipelines
 
-1. Sherlock account access to the `illorent` group (ask your PI/sponsor).
+1. Sherlock account access to the `illorent` group.
 2. Run the bootstrap script once, by full path:
 
    ```

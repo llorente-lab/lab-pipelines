@@ -192,7 +192,13 @@ cmd_node() {
   echo ""
 
   local hdr="  %-12s %-12s %-22s %5s %9s %10s\n"
-  local fmt="  %-12i %-12u %-22j %5C %9m %10M\n"
+  # squeue -o uses Slurm's own format spec ([.][size]type), NOT printf's
+  # %-Ns left-justify syntax -- a literal "-" here is invalid and squeue
+  # rejects it with "Invalid job format specification: -". Slurm fields are
+  # left-justified by default (a leading "." right-justifies instead), so
+  # dropping the "-" gets the same visual layout the printf-style version
+  # was going for.
+  local fmt="  %12i %12u %22j %5C %9m %10M\n"
 
   local running
   running=$(squeue -p "$partition" -h -t RUNNING -o "$fmt" 2>/dev/null)
@@ -209,7 +215,7 @@ cmd_node() {
   echo ""
 
   local pending
-  pending=$(squeue -p "$partition" -h -t PENDING -o "  %-12i %-12u %-22j %5C %9m\n" 2>/dev/null)
+  pending=$(squeue -p "$partition" -h -t PENDING -o "  %12i %12u %22j %5C %9m\n" 2>/dev/null)
   if [ -n "$pending" ]; then
     local n; n=$(echo "$pending" | wc -l)
     printf "  PENDING (%d job%s waiting)\n" "$n" "$([[ $n -eq 1 ]] && echo '' || echo 's')"
