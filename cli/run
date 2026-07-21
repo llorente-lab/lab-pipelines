@@ -48,7 +48,7 @@ done < <(load_pipeline_manifest "$MANIFEST")
 require_pipeline_env() {
   local name="$1" var="${PIPELINE_ENV_VAR[$1]-}"
   if [ -z "$var" ] || [ -z "${!var-}" ]; then
-    echo "run $name: environment not set up -- expected \$$var to be set after sourcing ${name}'s env_setup.sh (see cli/setup.sh)" >&2
+    echo "run $name: environment not set up -- expected \$$var to be set after sourcing ${name}'s env_setup.sh (see setup.sh)" >&2
     exit 1
   fi
 }

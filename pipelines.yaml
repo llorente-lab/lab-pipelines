@@ -4,7 +4,7 @@
 # top-level tooling should be able to find it without reaching into cli/.
 #
 # Read by:
-#   - cli/run and cli/setup.sh (via cli/manifest.sh's purpose-built awk reader,
+#   - cli/run and setup.sh (via cli/manifest.sh's purpose-built awk reader,
 #     which only reads the six CLI fields below -- extra CI fields are ignored)
 #   - .github/workflows/push-and-publish.yml and build-sif.yml (via
 #     python3/pyyaml, read all fields)
@@ -22,7 +22,7 @@
 #   required_env_var  an env var this pipeline's env_setup.sh exports,
 #                     checked right after sourcing as a sanity gate.
 #   sif_var           the container image path variable, checked by
-#                     cli/setup.sh.
+#                     setup.sh.
 #   resources_yaml    path to this pipeline's resources.yaml, relative to
 #                     the repo root. Passed to cli/estimate_resources.py by
 #                     this pipeline's own submit script -- having it here

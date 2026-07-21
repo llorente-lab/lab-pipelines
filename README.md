@@ -7,12 +7,12 @@ deploy mechanism, shared conventions -- each pipeline is a directory under
 
 ```
 lab-pipelines/
+  setup.sh                 one-time (rerunnable) shell bootstrap for a new lab member
   pipelines.yaml          single manifest: CLI wiring + CI build config, per pipeline
   deploy/
     poll_and_deploy.sh    cron-invoked GitOps-style deploy agent, generic
   cli/
     run                    the one command lab members need, see below
-    setup.sh                one-time (rerunnable) shell bootstrap
     manifest.sh             reads pipelines.yaml
     pipelines/<name>.sh     per-pipeline CLI functions (naming-convention based)
   common/                 code shared by 2+ pipelines (job_init, monitor_resources, apptainer wrappers)
@@ -25,6 +25,32 @@ Adding a third pipeline: a `pipelines/<name>/` directory plus one entry in
 `pipelines.yaml` (see that file's header for the checklist). No CLI or CI
 edit is needed -- both discover pipelines from the manifest.
 
+## For lab members: running pipelines
+
+1. Sherlock account access to the `illorent` group (ask your PI/sponsor).
+2. Run the bootstrap script once, by full path:
+
+   ```
+   bash $GROUP_HOME/pipelines/current/setup.sh
+   ```
+
+   Idempotent and safe to rerun any time -- there's no separate "verify"
+   step.
+
+After that, open a new shell:
+
+```
+run list
+run miniscope motion-correction --mouse XXXXX --date 2025-01-01 --tp tp1
+run status
+run logs miniscope motion-correction --mouse XXXXXX --date 2025-01-01 --tp tp1
+```
+
+See `cli/README.md` for the full command reference. `run` is a generic,
+manifest-driven dispatcher with no per-pipeline code inside it -- just a
+thin wrapper around the same `.sbatch` files anyone can still call
+directly.
+
 ## Deployment model
 
 Sherlock's login nodes can't be reached from the internet, so this is
@@ -32,8 +58,8 @@ pull-based, GitOps-style: a job on a schedule (`scrontab`, not a real
 crontab -- Sherlock disables those on login nodes) checks whether
 `origin/main` moved, and deploys if so.
 
-The deploy tree lives under `$GROUP_HOME/pipelines` (shared, backed up,
-lab-wide), not any one person's `$HOME`:
+The deploy tree lives under `/home/groups/illorent/pipelines` (shared, backed up,
+lab-wide), not any one person's home directory.
 
 ```
 $GROUP_HOME/pipelines/
@@ -87,35 +113,6 @@ lab-wide regardless of whose account runs it.
 future change to that file needs a manual `cp` from `_repo/deploy/` (not
 `current/`, which only advances after a successful deploy).
 
-## For lab members: running pipelines
-
-No git, no touching `$GROUP_HOME/pipelines` directly, no `cd`-ing into the
-deployed tree. Two things, once:
-
-1. Sherlock account access to the `illorent` group (ask your PI/sponsor).
-2. Run the bootstrap script once, by full path:
-
-   ```
-   bash $GROUP_HOME/pipelines/current/cli/setup.sh
-   ```
-
-   Idempotent and safe to rerun any time -- there's no separate "verify"
-   step.
-
-After that, open a new shell:
-
-```
-run list
-run miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
-run status
-run logs miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
-```
-
-See `cli/README.md` for the full command reference. `run` is a generic,
-manifest-driven dispatcher with no per-pipeline code inside it -- just a
-thin wrapper around the same `.sbatch` files anyone can still call
-directly.
-
 ## Adding a new pipeline
 
 1. `mkdir pipelines/<name>` with a `Dockerfile`, `common/env_setup.sh`
@@ -135,9 +132,3 @@ directly.
 6. Add one entry to `pipelines.yaml` -- this is the only registration step;
    both the CLI and every CI workflow discover pipelines from it.
 
-## Why a monorepo
-
-Every pipeline here targets the same cluster, storage conventions,
-container/rclone auth patterns, and deploy mechanism. Separate repos would
-mean N copies of that boilerplate and N places for the deploy agent to
-drift. See `common/README.md` for what does and doesn't belong there.

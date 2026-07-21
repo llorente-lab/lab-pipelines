@@ -1,7 +1,7 @@
 name: Build SIF
 
 # Generic, multi-pipeline .sif builder. Reads the pipeline list straight
-# from pipelines.yaml (repo root; same manifest cli/run and cli/setup.sh
+# from pipelines.yaml (repo root; same manifest cli/run and setup.sh
 # use, via cli/manifest.sh's purpose-built reader -- not a general YAML
 # parser, see that file's own header) instead of hardcoding one pipeline
 # name, so adding a third/fourth pipeline to the manifest is enough to get

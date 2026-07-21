@@ -82,7 +82,7 @@ cmd_moseq() {
   fi
 
   if [ -z "${MOSEQ_PROJECTS_BASE-}" ]; then
-    echo "run moseq: environment not set up -- have you sourced pipelines/moseq/common/env_setup.sh? (see cli/setup.sh)" >&2
+    echo "run moseq: environment not set up -- have you sourced pipelines/moseq/common/env_setup.sh? (see setup.sh)" >&2
     exit 1
   fi
   case "$stage" in

@@ -1,17 +1,17 @@
 #!/bin/bash
 # Idempotent environment bootstrap. Run by full path:
-#   bash $GROUP_HOME/pipelines/current/cli/setup.sh
+#   bash $GROUP_HOME/pipelines/current/setup.sh
 
 set -uo pipefail  # not -e: a failed check shouldn't stop later checks from running
 
 SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST="$SETUP_DIR/../pipelines.yaml"
+MANIFEST="$SETUP_DIR/pipelines.yaml"
 PIPELINES_ROOT="${PIPELINES_ROOT:-${GROUP_HOME:-$HOME}/pipelines}"
 REPO_ROOT="$PIPELINES_ROOT/current"
 BASHRC="$HOME/.bashrc"
 
 # shellcheck disable=SC1091
-source "$SETUP_DIR/manifest.sh"
+source "$SETUP_DIR/cli/manifest.sh"
 
 PASS=0
 FAIL=0

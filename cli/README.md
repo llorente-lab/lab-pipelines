@@ -4,8 +4,8 @@ The execution + monitoring layer. `run` is the one command a lab member
 needs to run pipelines, check on them, find their logs, and move data
 between Drive and scratch -- no `cd`-ing into the deployed tree, no
 remembering `sbatch` argument order, log paths, or raw `rclone` invocations.
-`setup.sh` is the one-time (safely re-runnable) bootstrap for a new lab
-member's shell.
+The one-time (safely re-runnable) shell bootstrap for a new lab member
+lives at the repo root, `setup.sh` -- see the top-level README.
 
 `run sync <src> <dst> [rclone flags...]` is a deliberately thin,
 unopinionated wrapper around `rclone copy` (via `apptainer_rclone`, since
@@ -31,12 +31,10 @@ shape). Adding a pipeline means one manifest entry and one new
 
 - `run` -- the user-facing command. Deployed onto `$PATH` via every
   pipeline's `env_setup.sh`, so it updates automatically on every deploy.
-- `setup.sh` -- one-time shell bootstrap for a new lab member: idempotently
-  adds every pipeline's `env_setup.sh` source line to `~/.bashrc` and runs
-  sanity checks (group access, container/rclone config present) with
-  pass/fail output. Safe to rerun any time -- rerunning it IS the
-  verify/fix step.
 - `manifest.sh` -- the `pipelines.yaml` reader shared by `run` and
-  `setup.sh` (and read directly by the CI workflows).
-- `deploy_check.sh` -- gates deploys on `run`/`setup.sh`/`manifest.sh`
+  the repo root's `setup.sh` (and read directly by the CI workflows).
+- `deploy_check.sh` -- gates deploys on `run`/`manifest.sh`/`../setup.sh`
   syntax and `pipelines.yaml` parsing being valid.
+- `setup.sh` -- a compatibility shim only; the real bootstrap script lives
+  at the repo root now (`../setup.sh`). Kept here so anything still
+  pointing at the old `cli/setup.sh` path doesn't silently break.
