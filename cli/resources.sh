@@ -39,7 +39,7 @@ _apply_resource_overrides() {
 
   mapfile -t RESOURCE_FLAGS < <(
     python3 "$estimator" "$registry" "$_RF_STAGE" \
-      ${_RF_METADATA[@]+"${_RF_METADATA[@]}"} "${extra[@]}" 2>/dev/null
+      ${_RF_METADATA[@]+"${_RF_METADATA[@]}"} ${extra[@]+"${extra[@]}"} 2>/dev/null
   )
 }
 
