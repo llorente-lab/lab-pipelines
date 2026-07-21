@@ -63,6 +63,7 @@ fi
 # race to overwrite. _record_status() resolves _STATUS_FILE at trap-fire
 # time (not at definition time), so reassigning it here takes effect.
 _STATUS_FILE="$PROJECT_ROOT/status/extract_${SESSION_NAME}.json"
+start_resource_monitor "$PROJECT_ROOT/status/resources_extract_${SESSION_NAME}.tsv"
 
 SESSION_DIR="$PROJECT_ROOT/$SESSION_NAME"
 

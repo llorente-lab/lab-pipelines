@@ -36,6 +36,9 @@ TP="${3-}"
 
 echo "CNMF-E stage starting: $(date)"
 
+mkdir -p "$SCRATCH/logs/resource_monitor"
+start_resource_monitor "$SCRATCH/logs/resource_monitor/cnmfe_${SLURM_JOB_ID}.tsv"
+
 # --- phase 1: satisfy any MC prerequisites this scope needs -----------------
 
 PREREQ_FILE="$LOG_DIR/cnmfe_prereq_${SLURM_JOB_ID}.txt"

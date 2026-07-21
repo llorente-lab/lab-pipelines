@@ -24,6 +24,7 @@ if [ -z "$KAPPA" ]; then
   exit 1
 fi
 moseq_job_init "learn_model" "$PROJECT_ROOT"
+start_resource_monitor "$PROJECT_ROOT/status/resources_learn_model_${SLURM_JOB_ID}.tsv"
 
 PCA_SCORES="$PROJECT_ROOT/_pca/pca_scores.h5"
 OUTPUT_DIR="$PROJECT_ROOT/models"

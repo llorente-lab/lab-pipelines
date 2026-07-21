@@ -33,6 +33,9 @@ TP="${3-}"
 
 echo "motion correction stage starting: $(date)"
 
+mkdir -p "$SCRATCH/logs/resource_monitor"
+start_resource_monitor "$SCRATCH/logs/resource_monitor/mc_${SLURM_JOB_ID}.tsv"
+
 SESSIONS_FILE="$LOG_DIR/mc_sessions_${SLURM_JOB_ID}.txt"
 
 if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then

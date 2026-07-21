@@ -36,6 +36,7 @@ source "$MOSEQ_COMMON_DIR/template.sh"
 PROJECT_ROOT="${1-}"
 CONFIG_FILE="${2-}"
 moseq_job_init "extract" "$PROJECT_ROOT"
+start_resource_monitor "$PROJECT_ROOT/status/resources_extract_${SLURM_JOB_ID}.tsv"
 CONFIG_FILE="${CONFIG_FILE:-$PROJECT_ROOT/config.yaml}"
 
 if [ ! -f "$CONFIG_FILE" ]; then

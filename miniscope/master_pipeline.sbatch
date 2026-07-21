@@ -24,6 +24,9 @@
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/miniscope}"
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 
+mkdir -p "$SCRATCH/logs/resource_monitor"
+start_resource_monitor "$SCRATCH/logs/resource_monitor/master_${SLURM_JOB_ID}.tsv"
+
 echo "=========================================="
 echo "caiman master pipeline starting: $(date)"
 echo "=========================================="

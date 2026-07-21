@@ -12,6 +12,8 @@
 # strict mode -- sbatch jobs should fail loudly on any error, unlike an
 # interactive shell.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/env_setup.sh"
+# shellcheck disable=SC1091
+source "$CAIMAN_ROOT_DIR/../moseq/common/monitor_resources.sh"
 set -euo pipefail
 
 COMMON_DIR="$CAIMAN_COMMON_DIR"

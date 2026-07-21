@@ -14,6 +14,7 @@ source "$MOSEQ_COMMON_DIR/template.sh"
 
 PROJECT_ROOT="${1-}"
 moseq_job_init "aggregate" "$PROJECT_ROOT"
+start_resource_monitor "$PROJECT_ROOT/status/resources_aggregate_${SLURM_JOB_ID}.tsv"
 
 echo "------------------------------------------------------------------"
 echo ">>> AGGREGATE START: $(date)"

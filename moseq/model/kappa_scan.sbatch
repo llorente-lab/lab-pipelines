@@ -22,6 +22,7 @@ MIN_KAPPA="${4-}"
 MAX_KAPPA="${5-}"
 NUM_ITER="${6:-100}"
 moseq_job_init "kappa_scan" "$PROJECT_ROOT"
+start_resource_monitor "$PROJECT_ROOT/status/resources_kappa_scan_${SLURM_JOB_ID}.tsv"
 
 PCA_SCORES="$PROJECT_ROOT/_pca/pca_scores.h5"
 OUTPUT_DIR="$PROJECT_ROOT/models"

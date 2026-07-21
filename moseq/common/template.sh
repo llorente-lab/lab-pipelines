@@ -38,9 +38,13 @@
 # since a stage script may need to do its own arg-parsing (default values,
 # optional positional args) BEFORE project_root's presence is validated.
 
+# shellcheck disable=SC1091
+source "$MOSEQ_COMMON_DIR/monitor_resources.sh"
+
 echo "==== JOB START: $(date) ===="
 echo "Node: $SLURMD_NODENAME"
 echo "Cores: $SLURM_CPUS_PER_TASK | Mem: $SLURM_MEM_PER_NODE MB"
+
 
 moseq_job_init() {
   local stage="$1"

@@ -16,11 +16,16 @@
 
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/miniscope}"
 source "$CAIMAN_ROOT/common/env_setup.sh"
+# shellcheck disable=SC1091
+source "$CAIMAN_ROOT_DIR/../moseq/common/monitor_resources.sh"
 set -euo pipefail
 
 echo "==== JOB START: $(date) ===="
 echo "Node: $SLURMD_NODENAME"
 echo "Args: $*"
+
+mkdir -p "$SCRATCH/logs/resource_monitor"
+start_resource_monitor "$SCRATCH/logs/resource_monitor/multisession_${SLURM_JOB_ID}.tsv"
 
 apptainer exec \
   --env "RCLONE_CONFIG=${RCLONE_CONFIG}" \

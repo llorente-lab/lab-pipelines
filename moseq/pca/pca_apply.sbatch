@@ -17,6 +17,7 @@ PROJECT_ROOT="${1-}"
 CONFIG_FILE="${2-}"
 PCA_FILE="${3-}"
 moseq_job_init "pca_apply" "$PROJECT_ROOT"
+start_resource_monitor "$PROJECT_ROOT/status/resources_pca_apply_${SLURM_JOB_ID}.tsv"
 CONFIG_FILE="${CONFIG_FILE:-$PROJECT_ROOT/config.yaml}"
 PCA_FILE="${PCA_FILE:-$PROJECT_ROOT/_pca/pca.h5}"
 
