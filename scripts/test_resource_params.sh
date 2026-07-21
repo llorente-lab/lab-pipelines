@@ -151,6 +151,29 @@ _assert_contains "$pca_fit" "--mem=200G" "pca-fit mem_gb formula computes n_sess
 
 echo ""
 echo "=================================================================="
+echo "PART 2.5: estimate_resources.py -- list-valued partition (multi-partition eligibility)"
+echo "=================================================================="
+
+LIST_PARTITION_YAML="$SANDBOX/list_partition_resources.yaml"
+cat > "$LIST_PARTITION_YAML" <<'YAML'
+stages:
+  test-stage:
+    partition: [illorent, normal]
+    exclusive: false
+    cores:
+      formula: null
+      fallback: 16
+    mem_gb:
+      formula: null
+      fallback: 50
+YAML
+
+list_partition_flags="$(python3 "$CLI_DIR/estimate_resources.py" "$LIST_PARTITION_YAML" test-stage | tr '\n' ' ')"
+_assert_contains "$list_partition_flags" "--partition=illorent,normal" "a YAML list partition becomes a comma-joined --partition flag"
+_assert_not_contains "$list_partition_flags" "--partition=['" "list partition is never emitted as a raw Python repr"
+
+echo ""
+echo "=================================================================="
 echo "PART 3: end-to-end through the real \`run\` CLI (sbatch stubbed, no Slurm)"
 echo "=================================================================="
 

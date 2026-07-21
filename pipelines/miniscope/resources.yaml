@@ -57,7 +57,7 @@ stages:
       fallback: 1000
 
   multisession:
-    partition: illorent
+    partition: [illorent, normal]
     exclusive: false
     cores:
       formula: null

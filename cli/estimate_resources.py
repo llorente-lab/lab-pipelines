@@ -36,6 +36,11 @@ def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
     """
     Return resource requirements for `stage` given `metadata`.
     Keys: partition, exclusive, cores, mem_gb. Missing key = no opinion.
+
+    `partition` may be a plain string (single partition, the common case) or
+    a YAML list (e.g. `partition: [illorent, normal]`) -- kept as whichever
+    type the registry gave us here; resource_flags() below is what turns a
+    list into Slurm's comma-separated --partition=a,b syntax.
     """
     if yaml is None:
         return {}
@@ -98,12 +103,20 @@ def resource_flags(
     are calibrated for a typical run, not a whole-node request) and adds
     --exclusive instead. cores/mem_gb/time are explicit per-invocation
     overrides that always win, even combined with exclusive=True.
+
+    A registry `partition` that's a list (e.g. [illorent, normal]) becomes
+    Slurm's comma-separated --partition=illorent,normal form -- Slurm treats
+    the job as eligible on any of them and schedules on whichever opens up
+    first, not a strict "prefer the first one" order.
     """
     result = estimate(resources_yaml, stage, metadata or {})
 
     flags: list[str] = []
-    if result.get("partition"):
-        flags.append(f"--partition={result['partition']}")
+    partition = result.get("partition")
+    if partition:
+        if isinstance(partition, (list, tuple)):
+            partition = ",".join(str(p) for p in partition)
+        flags.append(f"--partition={partition}")
     if exclusive:
         flags.append("--exclusive")
 
