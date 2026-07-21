@@ -81,7 +81,7 @@ require_pipeline_env() {
 
 usage() {
   cat <<EOF
-run -- run and monitor lab pipelines, no cd required
+run -- run and monitor pipelines
 
 Usage:
 EOF
@@ -103,10 +103,10 @@ Other commands:
 default excludes, no baked-in direction, just whichever two paths you give
 it (either can be a gdrive: remote path or a local scratch path). Anything
 after the two paths is passed straight through to rclone, e.g.:
-  run sync gdrive:Miniscope/AnalyzedData/VK_.../2025-01-01/tp1 \
-           $SCRATCH/Miniscope/AnalyzedData/VK_.../2025-01-01/tp1
-  run sync $SCRATCH/Miniscope/AnalyzedData/VK_.../2025-01-01/tp1 \
-           gdrive:Miniscope/AnalyzedData/VK_.../2025-01-01/tp1 \
+  run sync gdrive:Miniscope/AnalyzedData/mouse/2025-01-01/tp1 \
+           $SCRATCH/Miniscope/AnalyzedData/mouse/2025-01-01/tp1
+  run sync $SCRATCH/Miniscope/AnalyzedData/mouse/2025-01-01/tp1 \
+           gdrive:Miniscope/AnalyzedData/mouse/2025-01-01/tp1 \
            --exclude '*.mmap' --exclude '*.avi'
 EOF
 }
@@ -220,12 +220,7 @@ cmd_node() {
   echo ""
 
   local hdr="  %-12s %-12s %-22s %5s %9s %10s\n"
-  # squeue -o uses Slurm's own format spec ([.][size]type), NOT printf's
-  # %-Ns left-justify syntax -- a literal "-" here is invalid and squeue
-  # rejects it with "Invalid job format specification: -". Slurm fields are
-  # left-justified by default (a leading "." right-justifies instead), so
-  # dropping the "-" gets the same visual layout the printf-style version
-  # was going for.
+  # squeue -o uses Slurm's own format spec ([.][size]type)
   local fmt="  %12i %12u %22j %5C %9m %10M\n"
 
   local running
