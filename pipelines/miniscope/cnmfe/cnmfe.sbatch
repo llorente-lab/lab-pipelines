@@ -8,7 +8,7 @@
 #
 # Has an internal two-phase gate: sessions that need MC first get motion-corrected before
 # this script re-checks for newly-ready CNMF-E sessions (local gate, not the global hard
-# gate in master_pipeline.sbatch).
+# gate in full_pipeline.sbatch).
 
 # sbatch spools scripts to a temp path, so BASH_SOURCE-derived paths don't work here.
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/pipelines/miniscope}"

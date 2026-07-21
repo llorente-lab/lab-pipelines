@@ -3,48 +3,9 @@
 # schedule via `scrontab` (Slurm's own cron, since plain user crontab is
 # disabled on Sherlock login nodes) -- see deploy/lab-pipelines.scrontab in
 # this same directory for the entry to install with `scrontab -e`.
-#
-# Why pull, not push: Sherlock's login nodes aren't reachable from the
-# internet, so a GitHub webhook has nowhere to deliver to. Instead this
-# script periodically checks whether origin has moved, and if so, deploys.
-# Same idea as Flux/ArgoCD, scaled down to a scheduled Slurm job for a small lab.
-#
-# Deploy layout (all under $PIPELINES_ROOT, default $GROUP_HOME/pipelines --
-# shared across the whole lab's group account, not any one person's $HOME, so
-# every lab member's jobs resolve the same deployed code through the same
-# `current` symlink, and nobody needs their own separate bootstrap):
-#   _repo/            persistent clone, `git fetch` happens here
-#   releases/<sha>/   one git worktree per deployed commit (cheap, no re-clone)
-#   current -> releases/<sha>/    atomically-flipped symlink every pipeline's
-#                                  scripts should resolve their root through
-#
-# This script itself lives OUTSIDE the release cycle (checked out once,
-# manually, not touched by deploys) so a broken commit can never break the
-# thing that deploys it.
-#
-# Per-pipeline sanity checks: after checking out a new commit, this script
-# looks for a `deploy_check.sh` at the top of each pipeline directory in the
-# new release (both repo-root-level dirs like cli/, and pipelines/*/ dirs
-# like pipelines/miniscope/deploy_check.sh) and runs it. If a pipeline
-# doesn't have one, it's skipped, not failed. The `current` symlink only
-# advances if every check that exists passes -- a bad commit just never gets
-# promoted, and the next poll will pick up the fix once it's pushed.
 
 set -euo pipefail
 
-# `module load` depends on Lmod's init script having been sourced, and that
-# turned out NOT to happen reliably inside a scrontab-launched batch job on
-# Sherlock (confirmed: the job's own $PATH still resolved to the ancient
-# system git, 1.8.3.1, even with the `type module` guard below in place --
-# none of the guessed Lmod init paths matched Sherlock's actual install).
-# Rather than keep guessing, prepend the modern git/python bin/ directories
-# onto PATH directly, unconditionally -- found via:
-#   module load system git && which git && module show git
-#   module load python/3.9.0 && which python3 && module show python/3.9.0
-# python3 is needed here too, not just git: deploy_check.sh runs as a child
-# process of this script (`bash "$check_script"` below) and inherits
-# whatever PATH we set up here, so fixing it once in this one place covers
-# both this script's own git usage and every pipeline's deploy_check.sh.
 GIT_MODULE_BIN="/share/software/user/open/git/2.45.1/bin"
 PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
 [ -d "$GIT_MODULE_BIN" ] && PATH="$GIT_MODULE_BIN:$PATH"
@@ -64,13 +25,6 @@ if type module >/dev/null 2>&1; then
   module load python/3.9.0 >/dev/null 2>&1 || true
 fi
 
-# Deliberately NOT `git worktree -h` here: by git's own convention, every
-# subcommand's -h/help output exits with status 129, whether or not that
-# subcommand is actually supported -- that misread is exactly what caused
-# the false "doesn't support git worktree" failure the first time this
-# check was written this way, and is also where the mysterious exit-code-129
-# SLURM job failures earlier trace back to. Compare the version number
-# directly instead of relying on any command's exit code.
 GIT_VERSION="$(git --version | awk '{print $3}')"
 MIN_GIT_VERSION="2.20"
 if [ "$(printf '%s\n%s\n' "$MIN_GIT_VERSION" "$GIT_VERSION" | sort -V | head -n1)" != "$MIN_GIT_VERSION" ]; then
@@ -79,20 +33,15 @@ if [ "$(printf '%s\n%s\n' "$MIN_GIT_VERSION" "$GIT_VERSION" | sort -V | head -n1
   exit 1
 fi
 
-# --- configuration -----------------------------------------------------------
+# config
 
 REPO_URL="${REPO_URL:-git@github.com:REPLACE_ME/lab-pipelines.git}"
 BRANCH="${BRANCH:-main}"
 
-# $GROUP_HOME is shared, backed up, and never purged -- the right tier for
-# code every lab member's jobs depend on. Falls back to personal $HOME only
-# if $GROUP_HOME genuinely isn't set (e.g. testing outside Sherlock), not as
-# a silent everyday default -- this should be shared infrastructure.
+# $GROUP_HOME is shared, backed up, and never purged 
 PIPELINES_ROOT="${PIPELINES_ROOT:-${GROUP_HOME:-$HOME}/pipelines}"
 
-# Cron doesn't source ~/.bashrc, so $SCRATCH may not be set the way it is in
-# an interactive shell. Fall back to Sherlock's standard scratch path
-# convention, matching every other script in this repo.
+# Cron doesn't source ~/.bashrc
 SCRATCH="${SCRATCH:-/scratch/users/$(whoami)}"
 
 REPO_DIR="$PIPELINES_ROOT/_repo"
@@ -100,10 +49,7 @@ RELEASES_DIR="$PIPELINES_ROOT/releases"
 CURRENT_LINK="$PIPELINES_ROOT/current"
 KEEP_RELEASES=5
 
-# Deploy history is small text, useful for the whole group to see (who
-# deployed what, when), and worth keeping past personal $SCRATCH's ~90-day
-# purge window -- lives under $PIPELINES_ROOT itself rather than personal
-# scratch, for the same sharing reason as everything else in this file.
+# Deploy history is small text
 DEPLOY_LOG_DIR="$PIPELINES_ROOT/logs/deploy"
 mkdir -p "$DEPLOY_LOG_DIR" "$RELEASES_DIR"
 DEPLOY_LOG="$DEPLOY_LOG_DIR/deploy.log"
@@ -128,9 +74,6 @@ if [ -L "$CURRENT_LINK" ]; then
 fi
 
 if [ "$REMOTE_SHA" = "$CURRENT_SHA" ]; then
-  # Nothing changed. Deliberately silent (no log line) so a 5-minute cron
-  # doesn't fill the log with "nothing to do" every run -- only deploy
-  # attempts (success or failure) get logged.
   exit 0
 fi
 
@@ -146,12 +89,7 @@ fi
 # --- per-pipeline sanity checks -------------------------------------------
 
 CHECK_FAILURES=0
-# Checked at two levels: repo-root-level dirs (cli/, common/, ...) AND
-# pipelines/*/ subdirs (pipelines/moseq/, pipelines/miniscope/, ...) --
-# actual pipelines live one level deeper than they used to (under
-# pipelines/), while cli/'s own deploy_check.sh is still a direct
-# repo-root child. A dir with no deploy_check.sh (e.g. common/, or
-# pipelines/ itself) is simply skipped.
+# Checked at two levels
 for pipeline_dir in "$NEW_RELEASE"/*/ "$NEW_RELEASE"/pipelines/*/; do
   [ -d "$pipeline_dir" ] || continue
   pipeline_name="$(basename "$pipeline_dir")"
@@ -169,25 +107,12 @@ done
 
 if [ "$CHECK_FAILURES" -gt 0 ]; then
   log "deploy of $REMOTE_SHA aborted: $CHECK_FAILURES check(s) failed, current symlink left unchanged"
-  # Worktree is left in place for inspection; it'll simply be retried on the
-  # next poll if a new commit fixes things, or cleaned up by the pruning
-  # step below eventually.
   exit 1
 fi
-
-# --- atomic promote --------------------------------------------------------
-
-# `ln -sfn` creates the new symlink and swaps it into place as a single
-# rename syscall, so nothing reading through $CURRENT_LINK ever observes a
-# half-updated state -- it's either the old release or the new one.
 ln -sfn "$NEW_RELEASE" "$CURRENT_LINK"
 log "deploy of $REMOTE_SHA complete, current -> $NEW_RELEASE"
 
-# --- prune old releases ----------------------------------------------------
-
-# Keep the $KEEP_RELEASES most recently checked-out worktrees (by mtime),
-# remove the rest via `git worktree remove` so they're cleanly untracked,
-# not just rm -rf'd.
+# prune old releases
 mapfile -t OLD_RELEASES < <(
   ls -1dt "$RELEASES_DIR"/*/ 2>/dev/null | tail -n +"$((KEEP_RELEASES + 1))"
 )

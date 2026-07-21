@@ -3,7 +3,12 @@
 #
 # Usage: sync.sh <mouse> <date> <tp>
 #
-# Uses `rclone copy`, not `rclone sync`: copy only adds/overwrites at the
+# Thin wrapper around `run sync` (cli/run's generic rclone-copy command,
+# also what `run moseq pull` delegates to) -- this script's only job is
+# computing the right src/dest paths and rclone flags for one session, not
+# reimplementing the rclone invocation itself.
+#
+# Uses `copy` semantics, not `sync`: copy only adds/overwrites at the
 # destination and never deletes anything there. sync would delete any file on
 # Drive not currently present locally, which is too destructive for this use
 # case (an incomplete or partially-cleaned local session folder could wipe
@@ -13,9 +18,9 @@
 # Always excludes *.mmap and *.avi, matching the existing lab convention
 # (both are too large to sync routinely; a manual sync is required later if
 # someone actually needs the mmap or the motion-corrected video off Sherlock).
-# Source the shared env setup first (SIF, RCLONE_CONFIG defaults), so this
-# script is self-sufficient whether it's called from pipeline_common.sh, from
-# an interactive shell with env_setup.sh already sourced, or completely cold.
+# Source the shared env setup first (puts `run` on PATH), so this script is
+# self-sufficient whether it's called from pipeline_common.sh, from an
+# interactive shell with env_setup.sh already sourced, or completely cold.
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/env_setup.sh"
 set -euo pipefail
 
@@ -50,7 +55,7 @@ echo "COPY - source:      $SRC_DIR"
 echo "COPY - destination: $DEST_DIR"
 echo "COPY - log:         $SYNC_LOG"
 
-apptainer_rclone copy "$SRC_DIR" "$DEST_DIR" \
+run sync "$SRC_DIR" "$DEST_DIR" \
   --transfers=8 \
   --checkers=8 \
   --drive-chunk-size=128M \
@@ -58,7 +63,6 @@ apptainer_rclone copy "$SRC_DIR" "$DEST_DIR" \
   --exclude="*.mmap" \
   --exclude="*.avi" \
   --ignore-times \
-  -P \
   --log-file="$SYNC_LOG" \
   --log-level=INFO
 

@@ -92,7 +92,7 @@ cmd_miniscope() {
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
       fi
       ;;
-    master)
+    full-pipeline)
       local exclusive="" cores="" mem="" walltime=""
       while [ $# -gt 0 ]; do
         case "$1" in
@@ -100,15 +100,15 @@ cmd_miniscope() {
           --cores)     cores="$2"; shift 2 ;;
           --mem)       mem="$2"; shift 2 ;;
           --time)      walltime="$2"; shift 2 ;;
-          *) echo "run miniscope master: unrecognized argument '$1'" >&2; exit 1 ;;
+          *) echo "run miniscope full-pipeline: unrecognized argument '$1'" >&2; exit 1 ;;
         esac
       done
-      _set_resource_flags miniscope master
+      _set_resource_flags miniscope full-pipeline
       [ -n "$exclusive" ] && _force_exclusive
       _apply_resource_overrides "$cores" "$mem" "$walltime"
-      _sbatch_submit "$(analyzed_base)/status" master \
+      _sbatch_submit "$(analyzed_base)/status" full-pipeline \
         ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
-        "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
+        "$CAIMAN_ROOT_DIR/full_pipeline.sbatch"
       ;;
     multisession)
       local mouse="" force_flag="" exclusive="" cores="" mem="" walltime=""
@@ -149,7 +149,7 @@ cmd_miniscope() {
       python3 "$REPO_COMMON_DIR/dashboard.py" "$search_dir"
       ;;
     "")
-      echo "run: missing stage -- try 'motion-correction', 'cnmfe', 'master', 'multisession', or 'dashboard'" >&2
+      echo "run: missing stage -- try 'motion-correction', 'cnmfe', 'full-pipeline', 'multisession', or 'dashboard'" >&2
       exit 1
       ;;
     *)
@@ -223,7 +223,7 @@ cmd_queue_miniscope() {
 }
 
 miniscope_job_names() {
-  echo "motion_correction,cnmfe,caiman_master,caiman_pipeline_test,multisession_registration"
+  echo "motion_correction,cnmfe,caiman_full_pipeline,caiman_pipeline_test,multisession_registration"
 }
 
 miniscope_list_entry() {
@@ -231,7 +231,7 @@ miniscope_list_entry() {
 miniscope
   motion-correction   run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive | --cores N --mem MEM --time T]
   cnmfe               run miniscope cnmfe             [--mouse M [--date D --tp T]] [--exclusive | --cores N --mem MEM --time T]
-  master              run miniscope master   (full sweep, hard-gated MC -> CNMF-E) [--exclusive | --cores N --mem MEM --time T]
+  full-pipeline       run miniscope full-pipeline   (full sweep, hard-gated MC -> CNMF-E) [--exclusive | --cores N --mem MEM --time T]
   multisession            run miniscope multisession [--mouse M] [--force] [--exclusive | --cores N --mem MEM --time T]
   dashboard                run miniscope dashboard [--mouse M]
 EOF
@@ -241,7 +241,7 @@ miniscope_stage_usage() {
   case "$1" in
     motion-correction) echo "usage: run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     cnmfe)              echo "usage: run miniscope cnmfe [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
-    master)              echo "usage: run miniscope master  (full sweep, hard-gated MC -> CNMF-E) [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
+    full-pipeline)       echo "usage: run miniscope full-pipeline  (full sweep, hard-gated MC -> CNMF-E) [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     multisession)         echo "usage: run miniscope multisession [--mouse M] [--force] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     dashboard)            echo "usage: run miniscope dashboard [--mouse M]" ;;
     "")
@@ -259,7 +259,7 @@ miniscope_help() {
   cat <<'EOF'
   run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]
   run miniscope cnmfe             [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]
-  run miniscope master                                          [--exclusive] [--cores N] [--mem MEM] [--time T]
+  run miniscope full-pipeline                                   [--exclusive] [--cores N] [--mem MEM] [--time T]
   run miniscope multisession          [--mouse M] [--force]     [--exclusive] [--cores N] [--mem MEM] [--time T]
   run miniscope dashboard [--mouse M]
   run queue miniscope [--mouse M]
@@ -297,6 +297,13 @@ continues if not all sessions for a mouse have been modeled yet.
 `run queue miniscope` is a dry run -- shows exactly which sessions
 reconciliation currently thinks need motion correction or are ready for
 CNMF-E, without submitting anything.
+
+Syncing (raw data pull, results push) is not a separate miniscope
+subcommand -- it happens automatically (raw data pulls lazily inside
+motion-correction if missing; results push to Drive after each stage
+finishes) and both paths go through the generic `run sync <src> <dst>
+[rclone flags...]` command under the hood, not a pipeline-specific rclone
+call. Use `run sync` directly for any ad hoc/manual copy.
 
 `run miniscope dashboard [--mouse M]` prints one row per job submitted
 through this CLI (from status/jobs.jsonl next to each job's output, written

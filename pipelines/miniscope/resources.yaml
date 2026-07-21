@@ -42,7 +42,7 @@ stages:
       max: 1400
       fallback: 1000
 
-  master:
+  full-pipeline:
     partition: illorent
     exclusive: false
     cores:

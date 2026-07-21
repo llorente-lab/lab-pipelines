@@ -1,5 +1,0 @@
-# DeepLabCut work is on hold -- this file is a leftover draft, not a real
-# registry. It was never added to pipelines.yaml, so nothing (cli/run, CI)
-# reads it. Safe to delete this file and the pipelines/deeplabcut/
-# directory whenever DLC work resumes or someone cleans up the tree
-# (the sandbox this was drafted in couldn't delete files directly).

@@ -15,7 +15,6 @@ MOUSE_NAME_PATTERN = re.compile(r"^VK_")
 GDRIVE_REMOTE = "gdrive"
 
 # Set MINISCOPE_DRIVE_PREFIX="" if the rclone remote's root_folder_id points
-# directly to the Miniscope folder, to avoid doubling up the path prefix.
 MINISCOPE_DRIVE_PREFIX = os.environ.get("MINISCOPE_DRIVE_PREFIX", "Miniscope")
 
 

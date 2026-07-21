@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=caiman_master
+#SBATCH --job-name=caiman_full_pipeline
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=7-00:00:00
 # No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
-# $SCRATCH/logs/caiman_master/. Falls back to slurm-%j.out if those vars aren't set.
+# $SCRATCH/logs/caiman_full_pipeline/. Falls back to slurm-%j.out if those vars aren't set.
 #
 # Full sweep only. Enforces a hard gate: if any MC work remains after the sweep, the
 # job aborts rather than silently starting CNMF-E on an incomplete state.
@@ -14,16 +14,16 @@ CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/pipelines/min
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 
 mkdir -p "$SCRATCH/logs/resource_monitor"
-start_resource_monitor "$SCRATCH/logs/resource_monitor/master_${SLURM_JOB_ID}.tsv"
+start_resource_monitor "$SCRATCH/logs/resource_monitor/full_pipeline_${SLURM_JOB_ID}.tsv"
 
 echo "=========================================="
-echo "caiman master pipeline starting: $(date)"
+echo "caiman full pipeline starting: $(date)"
 echo "=========================================="
 
 echo ""
 echo "stage 1: motion correction"
 
-MC_SESSIONS_FILE="$LOG_DIR/master_mc_sessions_${SLURM_JOB_ID}.txt"
+MC_SESSIONS_FILE="$LOG_DIR/full_pipeline_mc_sessions_${SLURM_JOB_ID}.txt"
 mc_queue > "$MC_SESSIONS_FILE"
 MC_COUNT=$(grep -c . "$MC_SESSIONS_FILE" || true)
 echo "sessions needing MC: $MC_COUNT"
@@ -52,7 +52,7 @@ echo "stage 1 complete, failures: $MC_FAILURES"
 echo ""
 echo "gate: re-checking for outstanding MC work"
 
-GATE_CHECK_FILE="$LOG_DIR/master_gate_check_${SLURM_JOB_ID}.txt"
+GATE_CHECK_FILE="$LOG_DIR/full_pipeline_gate_check_${SLURM_JOB_ID}.txt"
 mc_queue > "$GATE_CHECK_FILE"
 GATE_COUNT=$(grep -c . "$GATE_CHECK_FILE" || true)
 
@@ -61,7 +61,7 @@ if [ "$GATE_COUNT" -gt 0 ]; then
   cat "$GATE_CHECK_FILE"
   rm -f "$GATE_CHECK_FILE"
   echo ""
-  echo "master pipeline aborted: $(date)"
+  echo "full pipeline aborted: $(date)"
   exit 1
 fi
 rm -f "$GATE_CHECK_FILE"
@@ -71,7 +71,7 @@ echo "gate passed: no outstanding MC work"
 echo ""
 echo "stage 2: CNMF-E"
 
-CNMFE_SESSIONS_FILE="$LOG_DIR/master_cnmfe_sessions_${SLURM_JOB_ID}.txt"
+CNMFE_SESSIONS_FILE="$LOG_DIR/full_pipeline_cnmfe_sessions_${SLURM_JOB_ID}.txt"
 cnmfe_queue > "$CNMFE_SESSIONS_FILE"
 CNMFE_COUNT=$(grep -c . "$CNMFE_SESSIONS_FILE" || true)
 echo "sessions ready for CNMF-E: $CNMFE_COUNT"
@@ -96,7 +96,7 @@ rm -f "$CNMFE_SESSIONS_FILE"
 
 echo ""
 echo "=========================================="
-echo "master pipeline complete: $(date)"
+echo "full pipeline complete: $(date)"
 echo "MC failures: $MC_FAILURES, CNMF-E failures: $CNMFE_FAILURES"
 echo "NOTE: .mmap/.avi were excluded from CNMF-E sync, run a manual sync if needed"
 echo "=========================================="

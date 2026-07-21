@@ -47,7 +47,7 @@ export SBATCH_OUTPUT="$SCRATCH/logs/%x/%j.out"
 export SBATCH_ERROR="$SCRATCH/logs/%x/%j.err"
 
 mkdir -p "$SCRATCH/logs/motion_correction" "$SCRATCH/logs/cnmfe" \
-         "$SCRATCH/logs/caiman_master" "$SCRATCH/logs/caiman_pipeline_test" \
+         "$SCRATCH/logs/caiman_full_pipeline" "$SCRATCH/logs/caiman_pipeline_test" \
          "$SCRATCH/logs/multisession_registration" \
          "$SCRATCH/logs/queue" 2>/dev/null || true
 

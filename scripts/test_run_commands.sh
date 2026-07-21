@@ -168,9 +168,9 @@ _assert_contains "$out" "motion-correction" "run miniscope help lists motion-cor
 out="$("$CLI" miniscope bogus-stage 2>&1)"; code=$?
 _assert_exit_code "$code" 1 "run miniscope <unknown stage> exits 1"
 
-out="$("$CLI" miniscope master --mouse foo 2>&1)"; code=$?
-_assert_exit_code "$code" 1 "run miniscope master --mouse (unsupported flag) is rejected"
-_assert_contains "$out" "unrecognized argument" "run miniscope master reports unrecognized argument"
+out="$("$CLI" miniscope full-pipeline --mouse foo 2>&1)"; code=$?
+_assert_exit_code "$code" 1 "run miniscope full-pipeline --mouse (unsupported flag) is rejected"
+_assert_contains "$out" "unrecognized argument" "run miniscope full-pipeline reports unrecognized argument"
 
 : > "$CAPTURE_FILE"
 out="$("$CLI" miniscope motion-correction --mouse dryrun_mouse --date 2025-01-01 --tp tp1 2>&1)"; code=$?

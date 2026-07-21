@@ -22,6 +22,7 @@ source "$CLI_DIR/resources.sh"
 # caller already sourced env_setup.sh in their interactive shell.
 PIPELINE_NAMES=()
 declare -A PIPELINE_ENV_VAR
+declare -A PIPELINE_SIF_VAR
 
 while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resources_yaml; do
   [ -z "$p_name" ] && continue
@@ -43,7 +44,32 @@ while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resource
 
   PIPELINE_NAMES+=("$p_name")
   PIPELINE_ENV_VAR["$p_name"]="$p_env_var"
+  PIPELINE_SIF_VAR["$p_name"]="$p_sif_var"
 done < <(load_pipeline_manifest "$MANIFEST")
+
+# Every pipeline's env_setup.sh defines its own apptainer_rclone()/SIF, all
+# under the same generic names -- whichever pipeline is sourced LAST in the
+# loop above silently wins. That's fine for pipeline-specific commands (they
+# require_pipeline_env first, so the right one is always active), but `run
+# sync` is pipeline-agnostic and must not depend on manifest order. Instead,
+# resolve a SIF explicitly here, deterministically preferring the first
+# pipeline (in manifest order) that has its sif_var actually set.
+_sync_apptainer_rclone() {
+  local sif="" name sif_var
+  for name in "${PIPELINE_NAMES[@]}"; do
+    sif_var="${PIPELINE_SIF_VAR[$name]-}"
+    [ -z "$sif_var" ] && continue
+    if [ -n "${!sif_var-}" ]; then
+      sif="${!sif_var}"
+      break
+    fi
+  done
+  if [ -z "$sif" ]; then
+    echo "run sync: no pipeline SIF is set -- has any pipeline's env_setup.sh run (see setup.sh)?" >&2
+    return 1
+  fi
+  apptainer exec --env "RCLONE_CONFIG=${RCLONE_CONFIG-}" "$sif" rclone "$@"
+}
 
 require_pipeline_env() {
   local name="$1" var="${PIPELINE_ENV_VAR[$1]-}"
@@ -109,14 +135,16 @@ cmd_logs() {
 }
 
 cmd_sync() {
-  # Goes through apptainer_rclone since plain `rclone` isn't on Sherlock's compute node PATH.
+  # Goes through _sync_apptainer_rclone (not the ambient apptainer_rclone --
+  # see its definition above) since plain `rclone` isn't on Sherlock's
+  # compute node PATH, and the ambient one is pipeline-order-dependent.
   local src="${1-}" dst="${2-}"
   if [ -z "$src" ] || [ -z "$dst" ]; then
     echo "run sync: usage: run sync <src> <dst> [rclone flags...]" >&2
     exit 1
   fi
   shift 2
-  apptainer_rclone copy "$src" "$dst" --progress "$@"
+  _sync_apptainer_rclone copy "$src" "$dst" --progress "$@"
 }
 
 cmd_queue() {

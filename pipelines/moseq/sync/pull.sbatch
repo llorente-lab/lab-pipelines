@@ -29,7 +29,10 @@ echo "Source => $SOURCE"
 echo "Dest   => $PROJECT_DIR"
 echo "------------------------------------------------------------------"
 
-apptainer_rclone copy "$SOURCE" "$PROJECT_DIR" --progress
+# Delegates to `run sync` (cli/run's generic rclone-copy command) instead of
+# calling apptainer_rclone directly -- one implementation of "copy src to
+# dst via rclone", shared with miniscope's sync.sh.
+run sync "$SOURCE" "$PROJECT_DIR"
 
 echo "------------------------------------------------------------------"
 echo ">>> PULL END: $(date)"

@@ -83,10 +83,10 @@ _run run miniscope cnmfe --mouse dryrun_mouse --date 2025-01-01 --tp tp1
 _run run miniscope cnmfe --mouse dryrun_mouse --date 2025-01-01 --tp tp1 --exclusive
 _run run miniscope cnmfe --mouse dryrun_mouse --date 2025-01-01 --tp tp1 --cores 64 --mem 200 --time 1-00:00:00
 
-_header "MINISCOPE: master"
-_run run miniscope master
-_run run miniscope master --exclusive
-_run run miniscope master --cores 128 --mem 800 --time 1-00:00:00
+_header "MINISCOPE: full-pipeline"
+_run run miniscope full-pipeline
+_run run miniscope full-pipeline --exclusive
+_run run miniscope full-pipeline --cores 128 --mem 800 --time 1-00:00:00
 
 _header "MINISCOPE: multisession"
 _run run miniscope multisession --mouse dryrun_mouse
