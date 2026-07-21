@@ -63,8 +63,17 @@ if [ -f "$MANIFEST" ]; then
       fi
     fi
 
-    if grep -qF "$env_setup_line" "$BASHRC" 2>/dev/null; then
+    # grep -F alone does a substring match, so a COMMENTED-OUT line (e.g.
+    # "#source /path/to/env_setup.sh") would still match -- since the
+    # commented line contains the target string as a substring -- and
+    # falsely report PASS even though it's never actually executed.
+    # Filtering out commented lines first avoids that false positive.
+    if grep -v '^[[:space:]]*#' "$BASHRC" 2>/dev/null | grep -qF "$env_setup_line"; then
       echo "PASS - ~/.bashrc already sources $p_name env_setup.sh, nothing to add"
+    elif grep -qF "$env_setup_line" "$BASHRC" 2>/dev/null; then
+      echo "FAIL - ~/.bashrc has a commented-out line for $p_name env_setup.sh -- uncomment it:"
+      echo "    $env_setup_line"
+      FAIL=$((FAIL + 1))
     else
       echo "$env_setup_line" >> "$BASHRC"
       echo "ADDED - appended to ~/.bashrc:"
