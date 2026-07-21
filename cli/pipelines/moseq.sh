@@ -174,6 +174,34 @@ cmd_moseq() {
         echo "no moseq projects found under $MOSEQ_PROJECTS_BASE yet -- try 'run moseq init <name>'"
       fi
       ;;
+    jupyter-info)
+      # Info only -- OnDemand sessions are launched through Sherlock's web
+      # portal (Batch Connect), not something a CLI can submit on its
+      # behalf. This just saves hunting through
+      # pipelines/moseq/jupyter_kernel/README.md for the exact values.
+      # Keep in sync with that README's "Setting up a new OnDemand session"
+      # section -- it's the source of truth if these ever change.
+      cat <<'EOF'
+To run Moseq notebooks via Sherlock OnDemand:
+
+  1. https://login.sherlock.stanford.edu -> Interactive Apps -> Jupyter Notebook
+  2. Python version: 3.9
+  3. Custom initialization commands:
+
+       source $GROUP_HOME/moseq/jupyter_kernel/jupyter-server-env/bin/activate
+
+  4. Launch. Once inside, select the "MoSeq2 (Apptainer)" kernel for
+     notebooks that need moseq2 itself (PCA/model training, etc.) -- that
+     kernel runs inside the real container, separate from the server
+     environment above.
+
+Launch a NEW session after any change to step 3 -- an already-running
+session won't pick up initialization command changes.
+
+Full details (widget rendering issues, pinned package versions, why
+classic Notebook not JupyterLab): pipelines/moseq/jupyter_kernel/README.md
+EOF
+      ;;
     extract)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
@@ -353,7 +381,7 @@ print('  best model selected: ', best_model_is_selected('$project_dir', progress
 "
       ;;
     "")
-      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', or 'check-progress'" >&2
+      echo "run: missing moseq stage -- try 'init', 'pull', 'projects', 'jupyter-info', 'extract', 'aggregate', 'pca-fit', 'pca-apply', 'changepoints', 'kappa-scan', 'learn-model', 'master', or 'check-progress'" >&2
       exit 1
       ;;
     *)
@@ -411,6 +439,7 @@ moseq
   init <name>         run moseq init <name> [--source <gdrive_path>]  (record-only)
   pull <name>         run moseq pull <name> [--source <gdrive_path>]  (async job, normal partition)
   projects            run moseq projects
+  jupyter-info        run moseq jupyter-info  (OnDemand setup values, info only)
   extract <name>      one job per session still needing extraction  [--exclusive|--cores N|--mem MEM|--time T]
   aggregate <name>    consolidate proc/ output, regenerate moseq2-index.yaml  [--exclusive|--cores N|--mem MEM|--time T]
   pca-fit <name>      fit PCA (also auto-selects npcs for 90% variance)  [--exclusive|--cores N|--mem MEM|--time T]
@@ -428,6 +457,7 @@ moseq_stage_usage() {
     init)           echo "usage: run moseq init <project_name> [--source <gdrive_path>]" ;;
     pull)           echo "usage: run moseq pull <project_name> [--source <gdrive_path>]" ;;
     projects)       echo "usage: run moseq projects" ;;
+    jupyter-info)   echo "usage: run moseq jupyter-info" ;;
     extract)        echo "usage: run moseq extract <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     aggregate)      echo "usage: run moseq aggregate <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     pca-fit)        echo "usage: run moseq pca-fit <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
@@ -453,6 +483,7 @@ moseq_help() {
   run moseq init <project_name> [--source <gdrive_path>]
   run moseq pull <project_name> [--source <gdrive_path>]
   run moseq projects
+  run moseq jupyter-info
   run moseq extract <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
   run moseq aggregate <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
   run moseq pca-fit <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]
@@ -516,6 +547,11 @@ explicitly ask for it.
 source) by scanning $MOSEQ_PROJECTS_BASE/*/project_meta.yaml -- each
 project is self-describing, there's no separate central registry file to
 keep in sync or race against.
+
+`run moseq jupyter-info` prints the values needed to set up a Moseq
+notebook via Sherlock OnDemand -- info only, since OnDemand sessions are
+launched through Sherlock's own web portal, not something this CLI can
+submit on your behalf.
 
 `run moseq extract/aggregate/pca-fit/pca-apply/changepoints/kappa-scan/
 learn-model/master <name>` are thin wrappers around submit_moseq.py's

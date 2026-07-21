@@ -100,6 +100,11 @@ _assert_exit_code "$code" 0 "run moseq help exits 0"
 _assert_contains "$out" "extract" "run moseq help lists extract"
 _assert_contains "$out" "--exclusive" "run moseq help documents --exclusive"
 
+out="$("$CLI" moseq jupyter-info 2>&1)"; code=$?
+_assert_exit_code "$code" 0 "run moseq jupyter-info exits 0"
+_assert_contains "$out" "jupyter-server-env/bin/activate" "run moseq jupyter-info prints the activation line"
+_assert_contains "$out" "OnDemand" "run moseq jupyter-info mentions OnDemand"
+
 out="$("$CLI" moseq extract --help 2>&1)"; code=$?
 _assert_exit_code "$code" 0 "run moseq extract --help exits 0"
 _assert_contains "$out" "usage: run moseq extract" "run moseq extract --help shows stage usage"

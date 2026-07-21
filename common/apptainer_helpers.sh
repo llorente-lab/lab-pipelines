@@ -18,17 +18,6 @@
 #                                    (for pipelines with installed console
 #                                    entry points, e.g. moseq2-extract, that
 #                                    aren't plain python scripts)
-# All three pass --env RCLONE_CONFIG=$RCLONE_CONFIG and
-# --env PYTHONNOUSERSITE=1, matching what moseq/miniscope already did by
-# hand. <sif-var-name> is looked up indirectly (${!sif_var}) at CALL time,
-# not definition time, so it still picks up SIF_OVERRIDE-style late
-# reassignment the same way the hand-written versions did.
-#
-# Deliberately does NOT define a dev-exec (editable-checkout PYTHONPATH
-# bind) variant -- that one has real pipeline-specific shape (which package
-# names get checked for under $*_DEV_DIR), see pipelines/moseq/common/env_setup.sh's
-# apptainer_dev_exec for the one existing example to copy from if a new
-# pipeline wants the same fast-iteration workflow.
 define_apptainer_wrappers() {
   local sif_var="$1"
   if [ -z "$sif_var" ]; then
