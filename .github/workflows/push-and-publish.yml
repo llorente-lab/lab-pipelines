@@ -1,11 +1,19 @@
 name: push-and-publish
 
-# Single workflow that drives every pipeline end-to-end:
-#   discover → build-and-test (every push) → tag-push-publish (main only)
+# Single workflow that drives every pipeline:
+#   discover → build-and-test (every push, every branch)
+#            → tag-push-publish (manual only -- see below)
 #
 # The pipeline matrix is read from pipelines.yaml (repo root) so adding a
 # new pipeline only requires an entry there -- no workflow edit needed.
 # Test commands are read from .github/tests/tests.yaml at build time.
+#
+# tag-push-publish (GHCR push + .sif build + GitHub Release) used to run
+# automatically on every push to main. That meant every commit rebuilt and
+# republished a .sif, which is slow and mostly unnecessary -- pushes to
+# GHCR and .sif releases are now on-demand only, via "Run workflow" in the
+# Actions tab (workflow_dispatch). Every push still gets build+test, so
+# breakage is caught immediately; publishing is a deliberate separate step.
 
 on:
   push:
@@ -122,14 +130,15 @@ jobs:
               docker run --rm -i "$image" bash <<< "$cmd"
           done < /tmp/test_cmds.txt
 
-  # ── 3. Tag, push, build SIF, publish ────────────────────────────────────────
-  # Only runs on main. Tags the image with both :sha and :latest, pushes to
+  # ── 3. Tag, push, build SIF, publish (manual only) ──────────────────────────
+  # Triggered by "Run workflow" in the Actions tab, not by pushes -- see the
+  # header comment. Tags the image with both :sha and :latest, pushes to
   # GHCR, builds a .sif with Apptainer, and publishes it as a rolling GitHub
   # Release (<name>-sif-latest) so Sherlock can `gh release download` it
   # instead of running apptainer pull locally.
   tag-push-publish:
     needs: [discover, build-and-test]
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -152,8 +161,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_PAT }}
 
-      # Rebuild from cache -- the build-and-test job already populated
-      # the GHA cache, so this is essentially instant (cache hit).
       - name: Build image (load from cache)
         uses: docker/build-push-action@v5
         with:

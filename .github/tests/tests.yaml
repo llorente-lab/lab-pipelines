@@ -13,7 +13,6 @@
 
 tests:
   miniscope:
-    # Core import chain: catches broken CaImAn installs and the headless-opencv swap.
     - >-
       python -c "import caiman, cv2, numpy, psutil, PIL, roifile, joblib, tqdm;
       print('ok: caiman', getattr(caiman, '__version__', 'unknown'), '| cv2', cv2.__version__, '| numpy', numpy.__version__)"
@@ -22,7 +21,6 @@ tests:
     - rclone --version
 
   moseq:
-    # Full moseq import chain + numpy ABI pin check.
     - >-
       python -c "import moseq2_extract, moseq2_pca, moseq2_model, moseq2_viz, moseq2_app, cv2, h5py, numpy;
       assert int(numpy.__version__.split('.')[0]) < 2, f'numpy {numpy.__version__} >= 2, ABI pin regressed';
