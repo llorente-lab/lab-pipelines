@@ -23,7 +23,7 @@ MODEL_DIR = MOSEQ_ROOT_DIR / "model"
 # level; --.parent alone silently resolved to pipelines/cli, which doesn't
 # exist, so _resource_flags's _CLI_DIR.exists() gate was False the whole
 # time post-restructuring -- every moseq submission was silently getting
-# NO computed partition/cores/mem/qos, falling back entirely to each
+# NO computed partition/cores/mem, falling back entirely to each
 # .sbatch file's static #SBATCH defaults. Caught via _resource_flags
 # actually being exercised directly while testing the cores/mem/time
 # override feature.)
@@ -47,7 +47,7 @@ def _resource_flags(
     time: str | None = None,
 ) -> list[str]:
     """
-    Compute --partition/--cpus-per-task/--mem/--exclusive/--qos/--time from
+    Compute --partition/--cpus-per-task/--mem/--exclusive/--time from
     the registry. Returns [] gracefully if the estimator or registry is
     missing (still honoring exclusive/cores/mem_gb/time overrides, since
     those don't depend on the registry existing).
@@ -72,12 +72,6 @@ def _resource_flags(
     don't estimate wall time, so this is currently the only way to change
     a stage's wall time short of editing its .sbatch file's #SBATCH --time
     directive by hand.
-
-    --qos is only ever appended when resources.yaml names one explicitly
-    for this stage (see estimate_resources.py's header) -- e.g. kappa-scan
-    and learn-model, whose --time exceeds the account's default QOS
-    MaxWall and genuinely cannot run without a higher one. Every other
-    stage is left on Sherlock's own default QOS, no override.
     """
     result: dict = {}
     if _CLI_DIR.exists() and _MOSEQ_REGISTRY.exists():
@@ -105,8 +99,6 @@ def _resource_flags(
     if not exclusive and result.get("exclusive"):
         flags.append("--exclusive")
 
-    if result.get("qos"):
-        flags.append(f"--qos={result['qos']}")
     if time:
         flags.append(f"--time={time}")
     return flags
@@ -168,8 +160,8 @@ def _sbatch(
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        # A genuine rejection (bad --time/--qos combination, resource
-        # request that doesn't fit the partition, etc.) -- sbatch's own
+        # A genuine rejection (bad --time, resource request that doesn't
+        # fit the partition's MaxWall, etc.) -- sbatch's own
         # stderr says exactly why, but the default CalledProcessError
         # traceback doesn't include it, just "returned non-zero exit
         # status N". Re-raise with the actual message attached so a

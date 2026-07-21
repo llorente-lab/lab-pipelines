@@ -1,6 +1,6 @@
 #!/bin/bash
-# Dry-run validator for the --exclusive/--cores/--mem/--time overrides and
-# the new qos wiring, without submitting or running anything real.
+# Dry-run validator for the --exclusive/--cores/--mem/--time overrides,
+# without submitting or running anything real.
 #
 # Mechanism: prepends a fake `sbatch` executable (a wrapper script, not a
 # bash function) onto $PATH for the duration of this script, which adds
@@ -24,9 +24,10 @@
 #
 # Reads results as: "sbatch: Job <id> to start at ..." = accepted.
 #                    "sbatch: error: ..." = rejected, and the message says why
-#                    (e.g. "Requested time limit is invalid" means the QOS
-#                    doesn't allow that walltime -- exactly the failure mode
-#                    the qos: high_p fix was for).
+#                    (e.g. "Requested time limit is invalid" means the
+#                    default QOS's MaxWall doesn't allow that walltime --
+#                    expected for kappa-scan/learn-model's default --time
+#                    unless a shorter --time override is passed).
 #
 # Cleans up after itself: creates one scratch moseq project
 # ($MOSEQ_PROJECTS_BASE/_flag_dryrun_test) to have something to point
@@ -137,13 +138,13 @@ _header "MOSEQ: changepoints"
 _run run moseq changepoints "$TEST_PROJECT"
 _run run moseq changepoints "$TEST_PROJECT" --exclusive
 
-_header "MOSEQ: kappa-scan (this is the one that NEEDS qos=high_p -- default QOS's 2-day MaxWall would otherwise reject the 7-day request)"
+_header "MOSEQ: kappa-scan (default --time=7-00:00:00 exceeds the default QOS's 2-day MaxWall -- expect this one to be REJECTED unless --time is overridden)"
 _run run moseq kappa-scan "$TEST_PROJECT" --n-models 5
 _run run moseq kappa-scan "$TEST_PROJECT" --n-models 5 --exclusive
 _run run moseq kappa-scan "$TEST_PROJECT" --n-models 5 --cores 64 --mem 400 --time 2-00:00:00
-_run run moseq kappa-scan "$TEST_PROJECT" --n-models 5 --time 10-00:00:00   # deliberately over even high_p's 7-day cap -- SHOULD be rejected
+_run run moseq kappa-scan "$TEST_PROJECT" --n-models 5 --time 10-00:00:00   # deliberately way over the 2-day cap -- SHOULD be rejected
 
-_header "MOSEQ: learn-model (also needs qos=high_p -- default 3-day request exceeds normal QOS's 2-day cap)"
+_header "MOSEQ: learn-model (default --time=3-00:00:00 also exceeds the default QOS's 2-day cap -- expect REJECTED unless --time is overridden)"
 _run run moseq learn-model "$TEST_PROJECT" --kappa 500
 _run run moseq learn-model "$TEST_PROJECT" --kappa 500 --exclusive
 _run run moseq learn-model "$TEST_PROJECT" --kappa 500 --cores 32 --mem 200 --time 1-00:00:00

@@ -39,7 +39,7 @@ _moseq_parse_resource_flags() {
   MOSEQ_CORES_PY="${cores:-None}"
   MOSEQ_MEM_PY="${mem:-None}"
   MOSEQ_TIME_PY="None"
-  [ -n "$time" ] && MOSEQ_TIME_PY="'$time'"
+  if [ -n "$time" ]; then MOSEQ_TIME_PY="'$time'"; fi
 }
 
 moseq_project_dir() {
