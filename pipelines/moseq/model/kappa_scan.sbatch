@@ -9,7 +9,9 @@
 #SBATCH --job-name=moseq-kappa-scan
 # Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
-#SBATCH --time=7-00:00:00
+# 2 days is the account's max wall time (no QOS override in play); if a
+# scan needs longer than this, split it into fewer models per run instead.
+#SBATCH --time=2-00:00:00
 
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/pipelines/moseq/common/env_setup.sh"

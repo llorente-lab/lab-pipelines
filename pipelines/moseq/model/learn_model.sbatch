@@ -8,7 +8,9 @@
 #SBATCH --job-name=moseq-learn-model
 # Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
-#SBATCH --time=3-00:00:00
+# 2 days is the account's max wall time (no QOS override in play); if a
+# model needs longer than this, reduce num_iter or split the run.
+#SBATCH --time=2-00:00:00
 
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/pipelines/moseq/common/env_setup.sh"

@@ -29,6 +29,52 @@ def fake_sbatch_result(job_id: str) -> subprocess.CompletedProcess:
     )
 
 
+class TestResourceFlags(unittest.TestCase):
+    """
+    Unit tests for _resource_flags() itself -- no subprocess/mocking needed,
+    it's a pure function of (stage, metadata, exclusive, cores, mem_gb, time)
+    plus the real pipelines/moseq/resources.yaml registry on disk. See also
+    scripts/test_resource_params.sh for the same logic exercised end-to-end
+    through the real `run` CLI with sbatch stubbed.
+    """
+
+    def test_defaults_use_registry_fallback(self):
+        flags = submit_moseq._resource_flags("aggregate", {})
+        self.assertTrue(any(f.startswith("--partition=") for f in flags))
+        self.assertTrue(any(f.startswith("--cpus-per-task=") for f in flags))
+        self.assertTrue(any(f.startswith("--mem=") for f in flags))
+        self.assertFalse(any(f == "--exclusive" for f in flags))
+
+    def test_exclusive_drops_formula_derived_cores_and_mem(self):
+        flags = submit_moseq._resource_flags("aggregate", {}, exclusive=True)
+        self.assertIn("--exclusive", flags)
+        self.assertFalse(any(f.startswith("--cpus-per-task=") for f in flags))
+        self.assertFalse(any(f.startswith("--mem=") for f in flags))
+
+    def test_explicit_cores_wins_even_combined_with_exclusive(self):
+        flags = submit_moseq._resource_flags("aggregate", {}, exclusive=True, cores=8)
+        self.assertIn("--exclusive", flags)
+        self.assertIn("--cpus-per-task=8", flags)
+
+    def test_explicit_cores_mem_time_override_the_registry(self):
+        flags = submit_moseq._resource_flags(
+            "aggregate", {}, cores=16, mem_gb=200, time="1-00:00:00"
+        )
+        self.assertIn("--cpus-per-task=16", flags)
+        self.assertIn("--mem=200G", flags)
+        self.assertIn("--time=1-00:00:00", flags)
+
+    def test_pca_fit_mem_formula_scales_with_n_sessions(self):
+        # pca-fit's mem_gb formula is "n_sessions * 50" -- 4 sessions -> 200GB.
+        flags = submit_moseq._resource_flags("pca-fit", {"n_sessions": 4})
+        self.assertIn("--mem=200G", flags)
+
+    def test_unknown_stage_returns_no_registry_derived_flags(self):
+        flags = submit_moseq._resource_flags("not-a-real-stage", {})
+        self.assertFalse(any(f.startswith("--partition=") for f in flags))
+        self.assertFalse(any(f.startswith("--cpus-per-task=") for f in flags))
+
+
 class TestSbatchJobIdParsing(unittest.TestCase):
     def test_parses_job_id_from_normal_output(self):
         with mock.patch.object(subprocess, "run", return_value=fake_sbatch_result("12345")):
@@ -111,10 +157,13 @@ class TestSubmitExtraction(unittest.TestCase):
             job_ids = submit_moseq.submit_extraction(str(self.tmp))
 
         self.assertEqual(job_ids, ["101"])
-        self.assertEqual(len(submitted_args), 1)
-        # one job for the whole project, not one per session
-        self.assertTrue(submitted_args[0][-1].endswith("extract.sbatch") or
-                        str(self.tmp.resolve()) in submitted_args[0])
+        # one array-job submission for the whole project (not one per
+        # session), plus the automatic validate_extractions.sbatch chained
+        # via --dependency=afterany on that array job.
+        self.assertEqual(len(submitted_args), 2)
+        self.assertTrue(any(c.endswith("extract_array.sbatch") for c in submitted_args[0]))
+        self.assertTrue(any(c.endswith("validate_extractions.sbatch") for c in submitted_args[1]))
+        self.assertIn("--dependency=afterany:101", submitted_args[1])
 
     def test_no_jobs_when_everything_already_extracted(self):
         proc_a = self.tmp / "session_a" / "proc"
@@ -243,10 +292,10 @@ class TestSubmitMasterChaining(unittest.TestCase):
              mock.patch.object(submit_moseq, "submit_compute_changepoints", return_value="6") as m_cp:
             result = submit_moseq.submit_master(str(self.tmp))
 
-        m_agg.assert_called_once_with(str(self.tmp), depends_on=["1", "2"])
-        m_fit.assert_called_once_with(str(self.tmp), None, depends_on=["3"])
-        m_apply.assert_called_once_with(str(self.tmp), None, depends_on=["4"])
-        m_cp.assert_called_once_with(str(self.tmp), None, depends_on=["5"])
+        m_agg.assert_called_once_with(str(self.tmp), depends_on=["1", "2"], exclusive=False)
+        m_fit.assert_called_once_with(str(self.tmp), None, depends_on=["3"], exclusive=False)
+        m_apply.assert_called_once_with(str(self.tmp), None, depends_on=["4"], exclusive=False)
+        m_cp.assert_called_once_with(str(self.tmp), None, depends_on=["5"], exclusive=False)
         self.assertEqual(
             result,
             {
@@ -283,7 +332,7 @@ class TestSubmitMasterChaining(unittest.TestCase):
              mock.patch.object(submit_moseq, "submit_compute_changepoints", return_value="4"):
             submit_moseq.submit_master(str(self.tmp))
 
-        m_agg.assert_called_once_with(str(self.tmp), depends_on=None)
+        m_agg.assert_called_once_with(str(self.tmp), depends_on=None, exclusive=False)
 
 
 if __name__ == "__main__":

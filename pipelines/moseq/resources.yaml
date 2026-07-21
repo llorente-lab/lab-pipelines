@@ -12,14 +12,10 @@
 #
 # Formulas are PLACEHOLDERS pending calibration from the benchmarking harness.
 #
-# NOTE: kappa-scan's and learn-model's .sbatch files request --time=7-00:00:00
-# and --time=3-00:00:00 respectively by default, both of which exceed the
-# illorent account's default (`normal`) QOS MaxWall of 2 days. There is no
-# qos override wired up here anymore, so as-is those two stages will be
-# rejected by Slurm under their default walltime unless you pass a shorter
-# --time override per invocation (e.g. `run moseq kappa-scan <project>
-# --time 2-00:00:00`) or reduce the #SBATCH --time directive in the .sbatch
-# files themselves.
+# Wall time isn't in scope here (this registry only covers partition/cores/
+# mem_gb) -- each stage's .sbatch file sets its own #SBATCH --time, capped at
+# 2-00:00:00 (the account's max). Override per invocation with --time if a
+# specific run needs less.
 
 stages:
   extract:
@@ -97,8 +93,6 @@ stages:
   kappa-scan:
     partition: illorent
     exclusive: false
-    # --time=7-00:00:00 (see kappa_scan.sbatch) exceeds the default QOS's
-    # 2-day MaxWall -- pass --time explicitly to fit under it (see note above).
     cores:
       # ARHMM resampling is CPU-bound; n_models * num_iter drives total compute.
       formula: "min(128, max(16, n_models * num_iter // 50))"
@@ -114,8 +108,6 @@ stages:
   learn-model:
     partition: illorent
     exclusive: false
-    # --time=3-00:00:00 (see learn_model.sbatch) exceeds the default QOS's
-    # 2-day MaxWall -- pass --time explicitly to fit under it (see note above).
     cores:
       formula: "min(64, max(16, num_iter // 20))"
       min: 16
