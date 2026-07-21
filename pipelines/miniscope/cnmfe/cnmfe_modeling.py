@@ -336,7 +336,7 @@ def run_cnmfe(mouse: str, date: str, tp: str, analyzed_base: str):
             Cin=C_init,
         )
         fit_start = time.time()
-        cnm_model = cnm_model.fit(images)
+        cnm_model.fit(images)
         print(f"Fit complete in {(time.time() - fit_start):.1f}s, "
               f"{cnm_model.estimates.A.shape[1]} components")
 
