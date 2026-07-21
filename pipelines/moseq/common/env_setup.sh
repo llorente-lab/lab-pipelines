@@ -78,4 +78,4 @@ apptainer_dev_exec() {
 
 alias moseq_cd='cd "$MOSEQ_ROOT_DIR"'
 
-echo "moseq env loaded: MOSEQ_SIF=$MOSEQ_SIF, RCLONE_CONFIG=$RCLONE_CONFIG" >&2
+#echo "moseq env loaded: MOSEQ_SIF=$MOSEQ_SIF, RCLONE_CONFIG=$RCLONE_CONFIG" >&2

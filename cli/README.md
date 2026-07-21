@@ -33,8 +33,11 @@ shape). Adding a pipeline means one manifest entry and one new
   pipeline's `env_setup.sh`, so it updates automatically on every deploy.
 - `manifest.sh` -- the `pipelines.yaml` reader shared by `run` and
   the repo root's `setup.sh` (and read directly by the CI workflows).
-- `deploy_check.sh` -- gates deploys on `run`/`manifest.sh`/`../setup.sh`
-  syntax and `pipelines.yaml` parsing being valid.
-- `setup.sh` -- a compatibility shim only; the real bootstrap script lives
-  at the repo root now (`../setup.sh`). Kept here so anything still
-  pointing at the old `cli/setup.sh` path doesn't silently break.
+- `deploy_check.sh` -- gates deploys on `run`/`manifest.sh`/`resources.sh`/
+  `../setup.sh` syntax and `pipelines.yaml` parsing being valid.
+- `resources.sh` -- shared resource-flag/job-submission helpers (`_set_resource_flags`,
+  `_apply_resource_overrides`, `_sbatch_submit`), sourced by `run`.
+
+Setup lives at the repo root (`../setup.sh`), not here -- if you have an old
+`~/.bashrc` line or note pointing at `cli/setup.sh`, update it to `setup.sh`
+at the repo root.

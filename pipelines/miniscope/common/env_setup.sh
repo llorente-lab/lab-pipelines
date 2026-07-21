@@ -66,4 +66,4 @@ apptainer_rclone() {
 
 alias caiman_cd='cd "$CAIMAN_ROOT_DIR"'
 
-echo "caiman env loaded: SIF=$SIF, RCLONE_CONFIG=$RCLONE_CONFIG, storage_tier=$MINISCOPE_STORAGE_TIER ($MINISCOPE_ANALYZED_BASE)" >&2
+#echo "caiman env loaded: SIF=$SIF, RCLONE_CONFIG=$RCLONE_CONFIG, storage_tier=$MINISCOPE_STORAGE_TIER ($MINISCOPE_ANALYZED_BASE)" >&2
