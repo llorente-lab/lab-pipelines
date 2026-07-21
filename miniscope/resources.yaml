@@ -18,29 +18,29 @@ stages:
       # CaImAn parallelizes patch processing over CPUs; single-session peak.
       # n_sessions doesn't increase peak CPUs (sequential loop), only wall time.
       formula: null
-      min: 16
+      min: 64
       max: 256
-      fallback: 64
+      fallback: 128
     mem_gb:
       # Peak = mmap + CaImAn intermediate arrays for one session at a time.
       formula: null
       min: 50
       max: 1400
-      fallback: 300
+      fallback: 1000
 
   cnmfe:
     partition: illorent
     exclusive: false
     cores:
       formula: null
-      min: 16
+      min: 64
       max: 256
-      fallback: 64
+      fallback: 128
     mem_gb:
       formula: null
       min: 50
       max: 1400
-      fallback: 300
+      fallback: 1000
 
   master:
     partition: illorent
@@ -54,7 +54,7 @@ stages:
       formula: null
       min: 100
       max: 1400
-      fallback: 600
+      fallback: 1000
 
   multisession:
     partition: illorent

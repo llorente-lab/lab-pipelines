@@ -20,7 +20,7 @@ stages:
       formula: null
       min: 2
       max: 32
-      fallback: 8
+      fallback: 4
     mem_gb:
       formula: null
       min: 8
@@ -32,14 +32,14 @@ stages:
     exclusive: false
     cores:
       formula: null
-      min: 2
-      max: 32
+      min: 4
+      max: 64
       fallback: 8
     mem_gb:
       formula: null
-      min: 8
-      max: 64
-      fallback: 32
+      min: 16
+      max: 256
+      fallback: 64
 
   pca-fit:
     partition: illorent
@@ -48,8 +48,8 @@ stages:
       # RAM-bound not CPU-bound; few cores, leave headroom for co-scheduling.
       formula: null
       min: 4
-      max: 80
-      fallback: 64
+      max: 32
+      fallback: 8
     mem_gb:
       # Full frame stack loaded for SVD; rough: n_sessions * 50GB.
       formula: "n_sessions * 50"
@@ -98,7 +98,7 @@ stages:
       formula: null
       min: 50
       max: 1400
-      fallback: 600
+      fallback: 200
 
   learn-model:
     partition: illorent
@@ -107,9 +107,9 @@ stages:
       formula: "min(64, max(16, num_iter // 20))"
       min: 16
       max: 256
-      fallback: 128
+      fallback: 64
     mem_gb:
       formula: null
       min: 50
       max: 1400
-      fallback: 600
+      fallback: 200

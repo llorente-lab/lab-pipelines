@@ -26,7 +26,7 @@ Notes for the Apptainer/Sherlock environment:
     Run as: apptainer exec --env PYTHONNOUSERSITE=1 <sif> python cnmfe_modeling.py ...
     (see motion_correct.py for why PYTHONNOUSERSITE matters here)
 """
-
+from __future__ import annotations
 import roifile
 import cv2
 import logging

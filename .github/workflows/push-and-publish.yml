@@ -81,7 +81,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       - name: Build image (load, don't push yet)
         uses: docker/build-push-action@v5
@@ -150,7 +150,7 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PAT }}
 
       # Rebuild from cache -- the build-and-test job already populated
       # the GHA cache, so this is essentially instant (cache hit).
@@ -185,7 +185,7 @@ jobs:
       - name: Build SIF
         env:
           APPTAINER_DOCKER_USERNAME: ${{ github.actor }}
-          APPTAINER_DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+          APPTAINER_DOCKER_PASSWORD: ${{ secrets.GHCR_PAT }}
         run: |
           tag="${{ github.event.inputs.tag_override || github.sha }}"
           apptainer build \
@@ -199,4 +199,4 @@ jobs:
           name: "${{ matrix.pipeline.release_name }} (built from ${{ github.sha }})"
           body: "Auto-built from commit ${{ github.sha }}."
           files: ${{ matrix.pipeline.name }}.sif
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GHCR_PAT }}
