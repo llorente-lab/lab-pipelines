@@ -1,10 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=motion_correction
+# Resources come from the registry (miniscope/resources.yaml) when submitted via `run`.
 #SBATCH --partition=illorent
-#SBATCH --exclusive
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=256
-#SBATCH --mem=1500G
 #SBATCH --time=24:00:00
 # No --output/--error here: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh,
 # sourced automatically via ~/.bashrc) point these at an organized, global

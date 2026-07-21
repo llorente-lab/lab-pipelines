@@ -25,11 +25,9 @@
 # ever called this one; extract_session.sbatch was dead code and has been
 # removed rather than kept in sync by hand.
 #SBATCH --job-name=moseq-extract
+# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
-#SBATCH --cpus-per-task=256
-#SBATCH --mem=1500G
 #SBATCH --time=4-00:00:00
-#SBATCH --exclusive
 
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/moseq/common/env_setup.sh"

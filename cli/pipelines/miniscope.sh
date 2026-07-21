@@ -53,25 +53,39 @@ cmd_miniscope() {
     motion-correction)
       parse_session_flags "$@"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
-        sbatch "${_mail_flags[@]}" "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
+        _set_resource_flags miniscope motion-correction "n_sessions=1"
+        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        sbatch "${_mail_flags[@]}" "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
+        _set_resource_flags miniscope motion-correction
+        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
       else
-        sbatch "${_mail_flags[@]}" "$CAIMAN_MC_DIR/motion_correction.sbatch"
+        _set_resource_flags miniscope motion-correction
+        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "$CAIMAN_MC_DIR/motion_correction.sbatch"
       fi
       ;;
     cnmfe)
       parse_session_flags "$@"
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
-        sbatch "${_mail_flags[@]}" "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
+        _set_resource_flags miniscope cnmfe "n_sessions=1"
+        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
-        sbatch "${_mail_flags[@]}" "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
+        _set_resource_flags miniscope cnmfe
+        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
       else
-        sbatch "${_mail_flags[@]}" "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
+        _set_resource_flags miniscope cnmfe
+        sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
       fi
       ;;
     master)
-      sbatch "${_mail_flags[@]}" "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
+      _set_resource_flags miniscope master
+      sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        "$CAIMAN_ROOT_DIR/master_pipeline.sbatch"
       ;;
     multisession)
       local mouse="" force_flag=""
@@ -82,8 +96,10 @@ cmd_miniscope() {
           *) echo "run miniscope multisession: unrecognized argument '$1'" >&2; exit 1 ;;
         esac
       done
+      _set_resource_flags miniscope multisession
       # shellcheck disable=SC2086
-      sbatch "${_mail_flags[@]}" "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
+      sbatch ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
         ${mouse:+--mouse "$mouse"} $force_flag
       ;;
     "")

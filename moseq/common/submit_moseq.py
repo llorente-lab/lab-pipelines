@@ -69,6 +69,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 from reconcile_moseq_extraction import sessions_needing_extraction
@@ -78,7 +79,44 @@ EXTRACT_DIR = MOSEQ_ROOT_DIR / "extract"
 PCA_DIR = MOSEQ_ROOT_DIR / "pca"
 MODEL_DIR = MOSEQ_ROOT_DIR / "model"
 
+_CLI_DIR = MOSEQ_ROOT_DIR.parent / "cli"
+_MOSEQ_REGISTRY = MOSEQ_ROOT_DIR / "resources.yaml"
+
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)")
+
+
+def _resource_flags(stage: str, metadata: dict | None = None) -> list[str]:
+    """
+    Compute --partition/--cpus-per-task/--mem/--exclusive from the registry.
+    Returns [] gracefully if the estimator or registry is missing.
+    """
+    if not _CLI_DIR.exists() or not _MOSEQ_REGISTRY.exists():
+        return []
+    cli_dir = str(_CLI_DIR)
+    if cli_dir not in sys.path:
+        sys.path.insert(0, cli_dir)
+    try:
+        from estimate_resources import estimate
+        result = estimate(str(_MOSEQ_REGISTRY), stage, metadata or {})
+    except Exception:
+        return []
+    flags: list[str] = []
+    if result.get("partition"):
+        flags.append(f"--partition={result['partition']}")
+    if result.get("cores") is not None:
+        flags.append(f"--cpus-per-task={result['cores']}")
+    if result.get("mem_gb") is not None:
+        flags.append(f"--mem={result['mem_gb']}G")
+    if result.get("exclusive"):
+        flags.append("--exclusive")
+    return flags
+
+
+def _count_aggregate_sessions(project_root: str) -> int | None:
+    agg = Path(project_root) / "aggregate_results"
+    if not agg.is_dir():
+        return None
+    return len(list(agg.glob("*.h5")))
 
 
 def _log_flags(project_root: str, stage: str) -> list[str]:
@@ -156,27 +194,76 @@ def _sbatch_flags(project_root: str, stage: str, depends_on: list[str] | None) -
     return _log_flags(project_root, stage) + _dependency_flags(depends_on) + _mail_flags()
 
 
-def submit_extraction(project_root: str, config_file: str | None = None) -> list[str]:
+def submit_extraction(
+    project_root: str,
+    config_file: str | None = None,
+    use_array: bool = True,
+) -> list[str]:
     """
-    One sbatch job for the whole project (extract.sbatch loops over all
-    sessions needing extraction internally). Returns a single-element list
-    containing the job ID, or an empty list if nothing needs extraction.
-    The list return type is kept so submit_master()'s --dependency=afterok
-    chaining works unchanged.
+    Submit extraction jobs. Returns job ID(s) as a list (for dependency
+    chaining), or an empty list if nothing needs extraction.
+
+    use_array=True (default): one array task per session (extract_array.sbatch).
+        Each task gets its own log and status file; a single failure doesn't
+        abort the rest. The sessions list is written to
+        <project_root>/status/extract_sessions.txt before submission so each
+        array task can index into it. Logs land at
+        <project_root>/slurm_logs/extract-<array_job_id>-<task_id>.out.
+        Returns a single-element list (the array job ID); --dependency=afterok
+        on an array job ID waits for all tasks to succeed, which is exactly
+        what submit_master()'s chain to aggregate needs.
+
+    use_array=False: one job looping all sessions sequentially
+        (extract.sbatch). The original path, kept as a fallback.
     """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
 
-    if not sessions_needing_extraction(project_root):
+    sessions = sessions_needing_extraction(project_root)
+    if not sessions:
         return []
 
-    script = EXTRACT_DIR / "extract.sbatch"
-    return [
-        _sbatch(
-            script, project_root, config_file,
-            sbatch_flags=_sbatch_flags(project_root, "extract", None),
-        )
+    res = _resource_flags("extract", {"n_sessions": len(sessions)})
+
+    if not use_array:
+        script = EXTRACT_DIR / "extract.sbatch"
+        return [
+            _sbatch(
+                script, project_root, config_file,
+                sbatch_flags=_sbatch_flags(project_root, "extract", None) + res,
+            )
+        ]
+
+    # Write the sessions list so each array task can look up its session by
+    # $SLURM_ARRAY_TASK_ID (0-based index into this file).
+    status_dir = Path(project_root) / "status"
+    status_dir.mkdir(parents=True, exist_ok=True)
+    sessions_file = status_dir / "extract_sessions.txt"
+    sessions_file.write_text("\n".join(sessions) + "\n")
+
+    log_dir = Path(project_root) / "slurm_logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    # Array log flags use %A (array master job ID) and %a (task index) so
+    # each task gets its own file. These override _log_flags' %j format,
+    # which would give every task the same filename and cause interleaved writes.
+    array_log_flags = [
+        f"--output={log_dir}/extract-%A-%a.out",
+        f"--error={log_dir}/extract-%A-%a.err",
     ]
+
+    job_id = _sbatch(
+        EXTRACT_DIR / "extract_array.sbatch",
+        project_root, str(sessions_file), config_file,
+        sbatch_flags=[
+            *array_log_flags,
+            f"--array=0-{len(sessions) - 1}",
+            *_dependency_flags(None),
+            *_mail_flags(),
+            *res,
+        ],
+    )
+    return [job_id]
 
 
 def submit_aggregate(project_root: str, depends_on: list[str] | None = None) -> str:
@@ -192,7 +279,8 @@ def submit_aggregate(project_root: str, depends_on: list[str] | None = None) -> 
     script = EXTRACT_DIR / "aggregate.sbatch"
     return _sbatch(
         script, project_root,
-        sbatch_flags=_sbatch_flags(project_root, "aggregate", depends_on),
+        sbatch_flags=_sbatch_flags(project_root, "aggregate", depends_on)
+        + _resource_flags("aggregate"),
     )
 
 
@@ -205,9 +293,11 @@ def submit_pca_fit(
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
     script = PCA_DIR / "pca_fit.sbatch"
+    n = _count_aggregate_sessions(project_root)
     return _sbatch(
         script, project_root, config_file,
-        sbatch_flags=_sbatch_flags(project_root, "pca_fit", depends_on),
+        sbatch_flags=_sbatch_flags(project_root, "pca_fit", depends_on)
+        + _resource_flags("pca-fit", {"n_sessions": n} if n is not None else {}),
     )
 
 
@@ -226,9 +316,11 @@ def submit_pca_apply(
     config_file = config_file or str(Path(project_root) / "config.yaml")
     pca_file = pca_file or str(Path(project_root) / "_pca" / "pca.h5")
     script = PCA_DIR / "pca_apply.sbatch"
+    n = _count_aggregate_sessions(project_root)
     return _sbatch(
         script, project_root, config_file, pca_file,
-        sbatch_flags=_sbatch_flags(project_root, "pca_apply", depends_on),
+        sbatch_flags=_sbatch_flags(project_root, "pca_apply", depends_on)
+        + _resource_flags("pca-apply", {"n_sessions": n} if n is not None else {}),
     )
 
 
@@ -250,13 +342,15 @@ def submit_compute_changepoints(
     pca_file_components = pca_file_components or str(Path(project_root) / "_pca" / "pca.h5")
     pca_file_scores = pca_file_scores or str(Path(project_root) / "_pca" / "pca_scores.h5")
     script = PCA_DIR / "compute_changepoints.sbatch"
+    n = _count_aggregate_sessions(project_root)
     return _sbatch(
         script,
         project_root,
         config_file,
         pca_file_components,
         pca_file_scores,
-        sbatch_flags=_sbatch_flags(project_root, "changepoints", depends_on),
+        sbatch_flags=_sbatch_flags(project_root, "changepoints", depends_on)
+        + _resource_flags("changepoints", {"n_sessions": n} if n is not None else {}),
     )
 
 
@@ -289,7 +383,9 @@ def submit_kappa_scan(
         str(num_iter),
     ]
     return _sbatch(
-        script, *args, sbatch_flags=_sbatch_flags(project_root, "kappa_scan", depends_on)
+        script, *args,
+        sbatch_flags=_sbatch_flags(project_root, "kappa_scan", depends_on)
+        + _resource_flags("kappa-scan", {"n_models": n_models, "num_iter": num_iter}),
     )
 
 
@@ -315,7 +411,8 @@ def submit_learn_model(
         str(kappa),
         str(num_iter),
         dest_name,
-        sbatch_flags=_sbatch_flags(project_root, "learn_model", depends_on),
+        sbatch_flags=_sbatch_flags(project_root, "learn_model", depends_on)
+        + _resource_flags("learn-model", {"num_iter": num_iter}),
     )
 
 

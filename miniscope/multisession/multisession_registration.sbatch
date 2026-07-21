@@ -1,10 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=multisession_registration
+# Resources come from the registry (miniscope/resources.yaml) when submitted via `run`.
 #SBATCH --partition=illorent
-#SBATCH --exclusive
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=256
-#SBATCH --mem=1500G
 #SBATCH --time=4:00:00
 # No --output/--error here: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh,
 # sourced via ~/.bashrc) route logs to $SCRATCH/logs/miniscope_multisession/.

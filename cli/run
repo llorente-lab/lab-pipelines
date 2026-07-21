@@ -33,6 +33,8 @@ fi
 
 # shellcheck disable=SC1091
 source "$CLI_DIR/manifest.sh"
+# shellcheck disable=SC1091
+source "$CLI_DIR/resources.sh"
 
 # --- load every pipeline from the manifest ----------------------------------
 # `run` bootstraps its OWN environment here (sources each pipeline's

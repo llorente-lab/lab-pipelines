@@ -1,0 +1,71 @@
+# Resource registry for the miniscope/CaImAn pipeline.
+# Read by cli/estimate_resources.py at submit time; values passed as CLI
+# flags to sbatch, overriding any remaining #SBATCH directives per SLURM's
+# precedence rules (CLI flag > env var > #SBATCH directive).
+#
+# exclusive: false on all stages -- enables SLURM to co-schedule jobs on
+# illorent as long as the combined request fits within 256c/1500G.
+#
+# Formulas are Python expressions with metadata variables in scope.
+# `formula: null` means always use fallback (pending real benchmarking data).
+# Formulas are PLACEHOLDERS -- calibrate via the benchmarking harness.
+
+stages:
+  motion-correction:
+    partition: illorent
+    exclusive: false
+    cores:
+      # CaImAn parallelizes patch processing over CPUs; single-session peak.
+      # n_sessions doesn't increase peak CPUs (sequential loop), only wall time.
+      formula: null
+      min: 16
+      max: 256
+      fallback: 64
+    mem_gb:
+      # Peak = mmap + CaImAn intermediate arrays for one session at a time.
+      formula: null
+      min: 50
+      max: 1400
+      fallback: 300
+
+  cnmfe:
+    partition: illorent
+    exclusive: false
+    cores:
+      formula: null
+      min: 16
+      max: 256
+      fallback: 64
+    mem_gb:
+      formula: null
+      min: 50
+      max: 1400
+      fallback: 300
+
+  master:
+    partition: illorent
+    exclusive: false
+    cores:
+      formula: null
+      min: 32
+      max: 256
+      fallback: 128
+    mem_gb:
+      formula: null
+      min: 100
+      max: 1400
+      fallback: 600
+
+  multisession:
+    partition: illorent
+    exclusive: false
+    cores:
+      formula: null
+      min: 16
+      max: 256
+      fallback: 32
+    mem_gb:
+      formula: null
+      min: 50
+      max: 1400
+      fallback: 200

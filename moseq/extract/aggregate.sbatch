@@ -4,11 +4,9 @@
 # submit_moseq.py as explicit sbatch CLI flags, not set here -- see
 # submit_moseq.py's _log_flags() docstring for why.
 #SBATCH --job-name=moseq-aggregate
+# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
-#SBATCH --cpus-per-task=256
-#SBATCH --mem=1500G
 #SBATCH --time=04:00:00
-#SBATCH --exclusive
 
 set -euo pipefail
 source "${GROUP_HOME:-$HOME}/pipelines/current/moseq/common/env_setup.sh"
