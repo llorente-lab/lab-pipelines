@@ -4,10 +4,10 @@
 #
 # _set_resource_flags <pipeline> <stage> [key=value ...]
 #
-#   Reads <pipeline>/resources.yaml via estimate_resources.py, evaluates the
-#   formula for the given stage with any supplied metadata key=value pairs,
-#   clamps to registry min/max, falls back to registry fallback when metadata
-#   is missing or formula evaluation fails.
+#   Reads pipelines/<pipeline>/resources.yaml via estimate_resources.py,
+#   evaluates the formula for the given stage with any supplied metadata
+#   key=value pairs, clamps to registry min/max, falls back to registry
+#   fallback when metadata is missing or formula evaluation fails.
 #
 #   Sets global RESOURCE_FLAGS array, ready to splice into sbatch:
 #     _set_resource_flags miniscope motion-correction "n_sessions=1"
@@ -25,12 +25,16 @@ _set_resource_flags() {
   RESOURCE_FLAGS=()
 
   local estimator="$CLI_DIR/estimate_resources.py"
-  local registry="$REPO_ROOT/$pipeline/resources.yaml"
-  [ -f "$estimator" ] && [ -f "$registry" ] || return
+  local registry="$REPO_ROOT/pipelines/$pipeline/resources.yaml"
+  if [ ! -f "$estimator" ] || [ ! -f "$registry" ]; then
+    return 0
+  fi
 
   local estimates
   estimates="$(python3 "$estimator" "$registry" "$stage" "$@" 2>/dev/null)" || true
-  [ -z "$estimates" ] && return
+  if [ -z "$estimates" ]; then
+    return 0
+  fi
 
   unset ESTIMATED_PARTITION ESTIMATED_CORES ESTIMATED_MEM_GB ESTIMATED_EXCLUSIVE
   eval "$estimates" 2>/dev/null || true
