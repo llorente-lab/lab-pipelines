@@ -35,8 +35,8 @@ _set_resource_flags() {
   unset ESTIMATED_PARTITION ESTIMATED_CORES ESTIMATED_MEM_GB ESTIMATED_EXCLUSIVE
   eval "$estimates" 2>/dev/null || true
 
-  [ -n "${ESTIMATED_PARTITION:-}" ]  && RESOURCE_FLAGS+=("--partition=$ESTIMATED_PARTITION")
-  [ -n "${ESTIMATED_CORES:-}" ]      && RESOURCE_FLAGS+=("--cpus-per-task=$ESTIMATED_CORES")
-  [ -n "${ESTIMATED_MEM_GB:-}" ]     && RESOURCE_FLAGS+=("--mem=${ESTIMATED_MEM_GB}G")
-  [ "${ESTIMATED_EXCLUSIVE:-false}" = "true" ] && RESOURCE_FLAGS+=("--exclusive")
+  if [ -n "${ESTIMATED_PARTITION:-}" ];                      then RESOURCE_FLAGS+=("--partition=$ESTIMATED_PARTITION"); fi
+  if [ -n "${ESTIMATED_CORES:-}" ];                          then RESOURCE_FLAGS+=("--cpus-per-task=$ESTIMATED_CORES"); fi
+  if [ -n "${ESTIMATED_MEM_GB:-}" ];                        then RESOURCE_FLAGS+=("--mem=${ESTIMATED_MEM_GB}G"); fi
+  if [ "${ESTIMATED_EXCLUSIVE:-false}" = "true" ];           then RESOURCE_FLAGS+=("--exclusive"); fi
 }
