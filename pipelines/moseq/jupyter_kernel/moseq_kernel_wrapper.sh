@@ -23,12 +23,7 @@ fi
 
 # numexpr (a moseq2-extract dependency) defaults its NUMEXPR_MAX_THREADS
 # cap to 64 and errors ("nthreads cannot be larger than...") if it detects
-# more cores available than that -- same issue hit and fixed in the .sbatch
-# job scripts, but this is a separate execution path (Jupyter kernel launch,
-# not sbatch), so it needs its own fix. The OnDemand Jupyter app runs as its
-# own Slurm job, so $SLURM_CPUS_PER_TASK reflects that job's real
-# allocation; fall back to 64 (numexpr's own default) if it's ever unset,
-# e.g. someone runs this wrapper outside of a Slurm job for debugging.
+# more cores available than that
 exec apptainer exec \
   --bind "${SCRATCH:-/tmp},${GROUP_SCRATCH:-/tmp},${GROUP_HOME:-/tmp}" \
   --env "RCLONE_CONFIG=${RCLONE_CONFIG:-}" \

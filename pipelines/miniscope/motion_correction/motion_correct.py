@@ -1,30 +1,8 @@
 #!/usr/bin/env python
-"""
-CaImAn Motion Correction - Sherlock / Apptainer Edition (rewrite)
-
-Runs motion correction + memmap creation + correlation image computation for a
-single Miniscope session, then leaves everything in AnalyzedData for the
-CNMF-E stage to pick up later.
-
-Directory convention (current, going forward):
-    RawData:      {raw_base}/{mouse}/{date}/{tp}/videos/miniscope/*.avi
-    AnalyzedData: {analyzed_base}/{mouse}/{date}/{tp}/
+"""CaImAn motion correction for a single Miniscope session.
 
 Usage:
     python motion_correct.py <mouse> <date> <tp> [--raw-base PATH] [--analyzed-base PATH]
-
-Environment variables (optional):
-    MINISCOPE_RAW_BASE      - Base path for RawData (default: $SCRATCH/Miniscope/RawData)
-    MINISCOPE_ANALYZED_BASE - Base path for AnalyzedData (default: $SCRATCH/Miniscope/AnalyzedData)
-
-Notes for the Apptainer/Sherlock environment:
-    - This script assumes it is being invoked as:
-        apptainer exec --env PYTHONNOUSERSITE=1 <sif> python motion_correct.py ...
-      PYTHONNOUSERSITE avoids picking up a stray ~/.local site-packages cv2/numpy
-      that would otherwise shadow the versions baked into the container.
-    - rclone must be reachable inside the container (it is, per the Dockerfile),
-      and rclone's config (~/.config/rclone/rclone.conf) must be bind-mounted in,
-      since credentials are never baked into the image.
 """
 
 import cv2
@@ -48,20 +26,15 @@ import caiman as cm
 from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import params as params
 
-# reconcile_common.py lives in ../common relative to this file
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 from reconcile_common import gdrive_path
 
-# ---------------------------------------------------------------------------
-# Global setup
-# ---------------------------------------------------------------------------
-
-# OpenCV threading fights with CaImAn's own multiprocessing cluster, disable it
+# OpenCV threading fights with CaImAn's multiprocessing cluster.
 try:
     cv2.setNumThreads(0)
 except Exception:
     pass
-cv2.destroyAllWindows = lambda: None  # no-op on a headless node, some caiman code paths call this
+cv2.destroyAllWindows = lambda: None
 
 logger = logging.getLogger('caiman')
 logger.setLevel(logging.DEBUG)
@@ -74,10 +47,6 @@ logger.addHandler(handler)
 
 FRAME_LIMIT = 36000
 
-
-# ---------------------------------------------------------------------------
-# Path / environment helpers
-# ---------------------------------------------------------------------------
 
 def on_sherlock() -> bool:
     return (
@@ -141,12 +110,7 @@ def construct_movie_path(mouse, date, tp, raw_base):
 
 
 def run_sync_if_needed(mouse: str, date: str, tp: str, raw_base: Path):
-    """
-    Pull this session's raw video down from Google Drive into scratch if it isn't
-    already there. Unlike the old version, tp is passed in explicitly rather than
-    being independently rediscovered from Drive, so the folder this function fills
-    in always matches the tp the rest of the script is actually operating on.
-    """
+    """Pull this session's raw video from Google Drive if not already on scratch."""
     remote_path = gdrive_path("RawData", mouse, date, tp)
     local_path = Path(raw_base) / mouse / date / tp
 
@@ -256,10 +220,6 @@ def trim_video(movie_path, output_path, frame_limit):
     print(f"trimmed video written: {output_path} ({trimmed_frames} frames)")
 
 
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
-
 def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_LIMIT):
     cluster = None
     timing_log = {}
@@ -275,7 +235,6 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
     print(f"AnalyzedData base: {analyzed_base}")
 
     try:
-        # Step 0: ensure raw video is present locally, syncing from Drive if not
         raw_session_dir = Path(raw_base) / mouse / date / tp
         if not raw_session_dir.exists():
             print(f"WARNING - {raw_session_dir} missing, syncing from Google Drive")
@@ -284,14 +243,10 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         if not raw_session_dir.exists():
             raise FileNotFoundError(f"Raw session directory not found even after sync: {raw_session_dir}")
 
-        # New sessions always write under the tp-level path. (Older sessions that
-        # only exist at the mouse/date level are a read-side concern for
-        # reconciliation/CNMF-E, not something this script needs to reproduce.)
         data_dir = Path(analyzed_base) / mouse / date / tp
         data_dir.mkdir(parents=True, exist_ok=True)
         print(f"Output directory: {data_dir}")
 
-        # Step 1: locate the movie
         step_start = time.time()
         movie_path = construct_movie_path(mouse, date, tp, raw_base)
         if movie_path is None:
@@ -299,7 +254,6 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         assert os.path.exists(movie_path), f"Movie file not found: {movie_path}"
         timing_log['construct_path'] = log_step_time("Construct movie path", step_start)
 
-        # Step 2: trim if the recording is unusually long
         step_start = time.time()
         pth = Path(movie_path)
         output_path = pth.with_name(pth.stem + "_trimmed" + pth.suffix)
@@ -311,7 +265,6 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         print(f"{psutil.cpu_count()} CPUs available")
         gc.collect()
 
-        # Step 3: start the CaImAn cluster
         step_start = time.time()
         _, cluster, n_processes = cm.cluster.setup_cluster(
             backend='multiprocessing',
@@ -327,7 +280,6 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         frate = 30
         decay_time = 0.5
 
-        # Motion correction parameters (rigid; pw_rigid left off per current lab config)
         mc_dict = {
             'fnames': movie_path,
             'fr': frate,
@@ -344,7 +296,6 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
 
         log_memory("Start")
 
-        # Step 4: motion correction itself
         step_start = time.time()
         mot_correct = MotionCorrect(movie_path, dview=cluster, **mc_params.get_group('motion'))
         mot_correct.motion_correct(save_movie=True)
@@ -359,14 +310,13 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         plt.savefig(data_dir / 'motion_correction_shifts.png')
         plt.close()
 
-        bord_px = 0  # border_nan='copy' means no border to crop
+        bord_px = 0  # border_nan='copy' fills borders in-place; nothing to crop
         with open(data_dir / 'bord_px.txt', 'w') as f:
             f.write(f"bord_px: {bord_px}\n")
         timing_log['motion_correction'] = log_step_time("Motion correction", step_start)
 
-        # Step 5: write the memmap CNMF-E will read later. The 'order_c' naming
-        # convention here is load-bearing: reconciliation and cnmfe_modeling.py
-        # both search for '*.mmap' with 'order_c' in the filename.
+        # 'order_c' in the filename is load-bearing: reconciliation and cnmfe_modeling.py
+        # both filter mmaps by searching for '*.mmap' with 'order_c' in the name.
         step_start = time.time()
         fname_new = cm.save_memmap(
             fname_mc, base_name='memmap_', order='C',
@@ -375,7 +325,6 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         print(f'mmap saved to {fname_new}')
         timing_log['save_memmap'] = log_step_time("Save memmap", step_start)
 
-        # Step 6: load it back to compute the correlation image
         step_start = time.time()
         Yr, dims, T = cm.load_memmap(fname_new)
         images = Yr.T.reshape((T,) + dims, order='F')
@@ -389,8 +338,7 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         )
         timing_log['correlation_pnr'] = log_step_time("Correlation/PNR", step_start)
 
-        # Step 7: persist correlation_image.npy. This file is what makes MC-done
-        # detectable from Google Drive at all, since the mmap itself never syncs.
+        # correlation_image.npy is the Drive-visible proof that MC ran; the mmap never syncs.
         corr_npy_path = data_dir / 'correlation_image.npy'
         np.save(corr_npy_path, correlation_image)
         print(f"Correlation image saved: {corr_npy_path}")

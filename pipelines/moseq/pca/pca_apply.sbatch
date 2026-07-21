@@ -1,11 +1,6 @@
 #!/bin/bash
-# Projects extracted sessions onto an already-fit PCA basis. Same
-# --cluster-type local reasoning as pca_fit.sbatch. Also the job to
-# (re)run, cheaply, whenever new sessions are added to an existing project
-# -- no PCA refit needed. --output/--error passed by submit_moseq.py as
-# explicit sbatch CLI flags -- see submit_moseq.py's _log_flags() docstring.
+# Also the job to rerun cheaply when new sessions are added -- no PCA refit needed.
 #SBATCH --job-name=moseq-pca-apply
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
 #SBATCH --time=1-00:00:00
 

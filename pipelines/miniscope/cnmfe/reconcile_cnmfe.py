@@ -1,21 +1,5 @@
 #!/usr/bin/env python
-"""
-Reconcile which sessions need CNMF-E, and which sessions CNMF-E has
-discovered need motion correction (re-)done first.
-
-Per session, the checks run in this order:
-
-  1. Is there already a .joblib on Drive (canonical or archival, either
-     directory depth)? If so, done, skip entirely.
-  2. Is there an ROI .zip? Checked on both Drive and scratch, since a
-     labmate may have uploaded it straight to Drive without it ever
-     touching scratch. If missing, this session is waiting on a human to
-     finish FIJI segmentation, not an error, just not ready yet.
-  3. Is the mmap actually live on $SCRATCH right now? If yes, this session
-     is ready for CNMF-E. If no, despite zip + (possibly) an old
-     correlation image existing, the mmap has aged out of scratch's
-     ~90-day retention and this session needs motion correction run again.
-     This is CNMF-E reconciliation's entry point into the MC queue.
+"""Determine which sessions need CNMF-E and which need motion correction first.
 
 Usage:
     python reconcile_cnmfe.py --print-output       # sessions ready for CNMF-E
@@ -27,7 +11,6 @@ import argparse
 import sys
 from pathlib import Path
 
-# reconcile_common.py lives in ../common relative to this file
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 from reconcile_common import (
     ANALYZED_DONE_PATHS,

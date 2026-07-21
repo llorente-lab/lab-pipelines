@@ -1,11 +1,7 @@
 #!/bin/bash
-# Fits PCA across the whole aggregated session batch. Always --cluster-type
-# local -- Dask uses the cores this job's own allocation was given, no
-# nested Slurm submission from inside the container. --output/--error
-# passed by submit_moseq.py as explicit sbatch CLI flags -- see
-# submit_moseq.py's _log_flags() docstring for why.
+# --cluster-type local: Dask uses this job's own allocation; nested Slurm from inside
+# Apptainer is not supported.
 #SBATCH --job-name=moseq-pca-fit
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
 #SBATCH --time=2-00:00:00
 
@@ -39,10 +35,7 @@ echo "------------------------------------------------------------------"
 echo ">>> PCA FIT END: $(date)"
 echo "------------------------------------------------------------------"
 
-# Auto-select npcs at 90% cumulative explained variance and record it into
-# config.yaml -- removes the "eyeball the scree plot" hard gate, but
-# _pca/pca_scree.png is still there for a human to check/override this if
-# it looks wrong.
+# _pca/pca_scree.png is preserved for human review/override.
 echo "computing npcs for 90% explained variance..."
 apptainer_python "$MOSEQ_ROOT_DIR/pca/compute_npcs.py" "$PROJECT_ROOT" --threshold 90
 

@@ -1,29 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=motion_correction
-# Resources come from the registry (miniscope/resources.yaml) when submitted via `run`.
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=24:00:00
-# No --output/--error here: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh,
-# sourced automatically via ~/.bashrc) point these at an organized, global
-# location under $SCRATCH/logs/motion_correction/ regardless of where this
-# gets submitted from. Falls back to Slurm's default (slurm-%j.out in the
-# submission directory) if those env vars aren't set for some reason.
-#
-# Standalone motion correction stage. Runs at one of three granularities
-# depending on how many positional args are given:
-#
-#   sbatch motion_correction.sbatch                    # full sweep (reconciliation-driven)
-#   sbatch motion_correction.sbatch <mouse>             # everything reconciliation finds for one mouse
-#   sbatch motion_correction.sbatch <mouse> <date> <tp> # exactly one session, run directly
-#                                                          (bypasses reconciliation entirely --
-#                                                           useful for manual reprocessing)
+# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
+# $SCRATCH/logs/motion_correction/. Falls back to slurm-%j.out if those vars aren't set.
 
-# NOTE: sbatch runs this script from a copied/spooled path, not its real
-# location, so deriving paths from BASH_SOURCE (as we do everywhere else)
-# does not work here. CAIMAN_ROOT is fixed instead, pointing at the `current`
-# symlink the deploy agent maintains (see deploy/poll_and_deploy.sh) --
-# override via env var if the deployment location ever changes.
+# sbatch spools scripts to a temp path, so BASH_SOURCE-derived paths don't work here.
+# CAIMAN_ROOT points at the `current` symlink maintained by the deploy agent.
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/pipelines/miniscope}"
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 

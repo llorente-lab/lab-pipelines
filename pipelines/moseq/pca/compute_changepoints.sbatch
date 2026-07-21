@@ -1,11 +1,6 @@
 #!/bin/bash
-# Model-free syllable changepoints from PCA scores. Optional in moseq2's
-# own workflow, but useful as the target-duration reference for kappa
-# selection later. Same --cluster-type local reasoning as the other
-# PCA-stage jobs. --output/--error passed by submit_moseq.py as explicit
-# sbatch CLI flags -- see submit_moseq.py's _log_flags() docstring.
+# Useful as the target-duration reference for kappa selection.
 #SBATCH --job-name=moseq-changepoints
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
 #SBATCH --time=1-00:00:00
 

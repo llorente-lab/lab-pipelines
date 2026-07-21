@@ -1,24 +1,10 @@
 #!/bin/bash
-# Miniscope/CaImAn pipeline wiring for `run` (see cli/run, cli/pipelines.conf).
-# Sourced by cli/run, not executed directly -- defines cmd_miniscope,
-# cmd_logs_miniscope, cmd_queue_miniscope, miniscope_job_names,
-# miniscope_list_entry, miniscope_help. Naming convention only, no magic:
-# cli/run looks these up by pipeline name from cli/pipelines.conf.
-
-# --- flag parsing shared by motion-correction/cnmfe/logs --------------------
 
 parse_session_flags() {
   MOUSE=""
   DATE=""
   TP=""
-  # Whole-node override -- see cli/resources.sh's _force_exclusive. Meant
-  # for a genuinely huge/expensive dataset where it's worth reserving all
-  # of illorent (a single node) for this one run rather than the cores/mem
-  # resources.yaml calibrated for a typical session.
   EXCLUSIVE=""
-  # Explicit per-invocation overrides -- see cli/resources.sh's
-  # _apply_resource_overrides. Empty = use whatever _set_resource_flags
-  # (and _force_exclusive, if EXCLUSIVE is set) already computed.
   CORES=""
   MEM=""
   WALLTIME=""
@@ -36,9 +22,6 @@ parse_session_flags() {
   done
 }
 
-# Resolve the analyzed-data base the same way every other script does
-# (matches motion_correct.py/cnmfe_modeling.py/sync.sh's own fallback, so
-# `run logs` finds the exact same directory those scripts actually wrote to)
 analyzed_base() {
   echo "${MINISCOPE_ANALYZED_BASE:-$SCRATCH/Miniscope/AnalyzedData}"
 }
@@ -46,19 +29,15 @@ analyzed_base() {
 cmd_miniscope() {
   local stage="${1-}"; shift || true
 
-  # `run miniscope help` / `run miniscope --help` / `run miniscope -h` --
-  # full command reference, same text `run --help` shows for miniscope.
   if [ "$stage" = "help" ] || [ "$stage" = "--help" ] || [ "$stage" = "-h" ]; then
     miniscope_help
     return 0
   fi
-  # `run miniscope <stage> --help` -- one-line usage for that stage.
   if [ "${1-}" = "--help" ] || [ "${1-}" = "-h" ]; then
     miniscope_stage_usage "$stage"
     return $?
   fi
 
-  # --mail-type=FAIL if PIPELINE_NOTIFY_EMAIL is set; no-op otherwise
   local _mail_flags=()
   if [ -n "${PIPELINE_NOTIFY_EMAIL:-}" ]; then
     _mail_flags=("--mail-type=FAIL" "--mail-user=${PIPELINE_NOTIFY_EMAIL}")
@@ -197,11 +176,6 @@ cmd_logs_miniscope() {
   tail -F "$latest"
 }
 
-# `run queue miniscope [--mouse M]` -- dry run, shows exactly what
-# reconciliation currently thinks needs doing, without submitting anything.
-# Reuses the same mc_queue()/cnmfe_queue() functions master_pipeline.sbatch
-# itself calls before actually running anything, so this is guaranteed to
-# show the real queue, not a separate reimplementation that could drift.
 cmd_queue_miniscope() {
   parse_session_flags "$@"
   if [ -n "$DATE" ] || [ -n "$TP" ]; then
@@ -238,7 +212,6 @@ miniscope
 EOF
 }
 
-# One-line usage for a single stage, used by `run miniscope <stage> --help`.
 miniscope_stage_usage() {
   case "$1" in
     motion-correction) echo "usage: run miniscope motion-correction [--mouse M [--date D --tp T]] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;

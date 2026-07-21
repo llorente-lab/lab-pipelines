@@ -1,16 +1,8 @@
 #!/bin/bash
-# Scans n_models kappa values, training one model per value. Always
-# --cluster-type local (models trained sequentially inside this one job's
-# allocation) -- never slurm, same nested-Slurm-from-inside-Apptainer
-# reasoning as pca_fit.sbatch. Generous default wall time since n_models
-# models fit one after another, not in parallel. --output/--error passed
-# by submit_moseq.py as explicit sbatch CLI flags -- see
-# submit_moseq.py's _log_flags() docstring for why.
+# Models are trained sequentially (--cluster-type local), not in parallel -- wall time
+# scales with n_models. 2 days is the account's max; split into fewer models if needed.
 #SBATCH --job-name=moseq-kappa-scan
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
-# 2 days is the account's max wall time (no QOS override in play); if a
-# scan needs longer than this, split it into fewer models per run instead.
 #SBATCH --time=2-00:00:00
 
 set -euo pipefail
@@ -39,9 +31,7 @@ echo "Outdir  => $OUTPUT_DIR"
 echo "N models=> $N_MODELS ($SCAN_SCALE scale)"
 echo "------------------------------------------------------------------"
 
-# moseq2-model's CLI has no --config-file support at all (confirmed from
-# its actual cli.py) -- every parameter here is a plain flag/default,
-# nothing comes from config.yaml the way extract/pca do.
+# moseq2-model has no --config-file support (confirmed from cli.py) -- all params are flags.
 ARGS=(kappa-scan "$PCA_SCORES" "$OUTPUT_DIR" \
   --cluster-type local --run-cmd \
   --n-models "$N_MODELS" \
@@ -57,12 +47,8 @@ echo "------------------------------------------------------------------"
 echo ">>> KAPPA SCAN END: $(date)"
 echo "------------------------------------------------------------------"
 
-# Reports/records the best-fitting kappa (see select_best_kappa.py's
-# UNCONFIRMED note: this does NOT yet select by median log-likelihood, the
-# lab's stated actual convention, only the documented duration/jsd
-# objectives -- verify the printed keys the first time this runs for real).
-# Deliberately does NOT auto-submit a final learn-model run at this kappa --
-# that stays an explicit, separate step.
+# NOTE: select_best_kappa.py selects by duration/jsd objectives, NOT median log-likelihood
+# (the lab's stated convention) -- verify the printed keys the first time this runs for real.
 echo "selecting best-fitting kappa from scan..."
 apptainer_python "$MOSEQ_ROOT_DIR/model/select_best_kappa.py" "$PROJECT_ROOT" || \
   echo "select_best_kappa.py failed -- check models/*.p exist and _pca/changepoints.h5 was computed" >&2

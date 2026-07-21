@@ -1,15 +1,8 @@
 #!/bin/bash
-# Trains a single final model at one chosen kappa value. learn-model has no
-# --cluster-type flag at all (confirmed from moseq2-model's actual cli.py)
-# -- it's always synchronous/local, so there's no nested-Slurm question
-# here regardless of how this job itself was scheduled. --output/--error
-# passed by submit_moseq.py as explicit sbatch CLI flags -- see
-# submit_moseq.py's _log_flags() docstring for why.
+# learn-model has no --cluster-type flag (confirmed from moseq2-model cli.py) -- always
+# synchronous/local. 2 days is the account's max wall time; reduce num_iter if needed.
 #SBATCH --job-name=moseq-learn-model
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
-# 2 days is the account's max wall time (no QOS override in play); if a
-# model needs longer than this, reduce num_iter or split the run.
 #SBATCH --time=2-00:00:00
 
 set -euo pipefail

@@ -1,38 +1,21 @@
 #!/bin/bash
-# Dry-run validator for the --exclusive/--cores/--mem/--time overrides,
-# without submitting or running anything real.
+# Dry-run validator for the --exclusive/--cores/--mem/--time overrides on
+# real Sherlock, without submitting or running anything. Prepends a fake
+# `sbatch` (a real wrapper executable on $PATH, not a bash function -- a
+# function shadow wouldn't catch moseq's Python subprocess.run(["sbatch",
+# ...]) calls, which bypass the shell entirely) that adds --test-only and
+# execs the real sbatch. --test-only fully validates the job (partition,
+# walltime, resource fit) and reports a start estimate or rejection reason,
+# without queuing anything -- zero compute cost, safe to rerun.
 #
-# Mechanism: prepends a fake `sbatch` executable (a wrapper script, not a
-# bash function) onto $PATH for the duration of this script, which adds
-# --test-only and execs the real sbatch. --test-only asks Slurm to fully
-# validate the job (partition exists, QOS accepts the requested walltime,
-# resources fit the partition/QOS limits) and report either an estimated
-# start time or a rejection reason -- WITHOUT actually queuing the job.
-# Zero compute cost, safe to run as many times as you want.
-#
-# A REAL wrapper executable, not a bash function, is required here: a bash
-# function shadow only intercepts bareword `sbatch` calls made directly in
-# THIS shell (which is how miniscope.sh submits). Moseq's submissions go
-# through submit_moseq.py's Python subprocess.run(["sbatch", ...]), which
-# does a raw PATH lookup and completely bypasses any bash function --
-# subprocess.run never invokes a shell at all unless shell=True is passed.
-# Only a real file on PATH intercepts both.
-#
-# Usage (on Sherlock, after sourcing both pipelines' env_setup.sh, e.g. via
-# a fresh login shell where ~/.bashrc already does this):
+# Usage (after sourcing both pipelines' env_setup.sh):
 #   bash scripts/dryrun_resource_flags.sh
 #
-# Reads results as: "sbatch: Job <id> to start at ..." = accepted.
-#                    "sbatch: error: ..." = rejected, and the message says why
-#                    (e.g. "Requested time limit is invalid" means the
-#                    default QOS's MaxWall doesn't allow that walltime --
-#                    expected for kappa-scan/learn-model's default --time
-#                    unless a shorter --time override is passed).
+# "sbatch: Job <id> to start at ..." = accepted. "sbatch: error: ..." =
+# rejected, message says why (e.g. a walltime over the account's MaxWall).
 #
-# Cleans up after itself: creates one scratch moseq project
-# ($MOSEQ_PROJECTS_BASE/_flag_dryrun_test) to have something to point
-# extract/aggregate/pca-fit/etc at, and removes it at the end via the trap
-# below (safe to Ctrl-C partway through, cleanup still runs).
+# Creates one scratch project ($MOSEQ_PROJECTS_BASE/_flag_dryrun_test) to
+# point moseq stages at, removed via the trap below even on Ctrl-C.
 
 set -uo pipefail  # deliberately not -e: one rejected combination shouldn't stop the rest
 

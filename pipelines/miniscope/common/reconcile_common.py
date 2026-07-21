@@ -1,33 +1,5 @@
 #!/usr/bin/env python
-"""
-Shared helpers for reconciliation: figuring out which sessions need motion
-correction and which need CNMF-E, per the contract worked out for this pipeline.
-
-Key design points this file encodes (see the pipeline design discussion for why):
-
-  - MC-done is checked via Drive, looking for correlation_image.npy, NOT the
-    mmap itself, since the mmap is permanently excluded from every rclone sync
-    and can never be detected from Drive.
-
-  - CNMF-E-done is checked via Drive, looking for a .joblib file. If it's
-    there, the session is finished, full stop, don't touch it.
-
-  - AnalyzedData lives across four Drive locations:
-        canonical:  Miniscope/AnalyzedData
-        archival:   Miniscope/AnalyzedData/old_processed_by_Atharv
-                    Miniscope/AnalyzedData/reorganized_and_reprocessed
-        excluded:   Miniscope/AnalyzedData/excluding_for_analysis
-    Canonical and archival count identically for "is this done" checks.
-    Excluded means skip the session entirely, don't even evaluate it.
-
-  - Every AnalyzedData lookup is done at both mouse/date/tp AND mouse/date,
-    since older sessions predate the tp-level directory convention.
-
-  - CNMF-E readiness (zip present + mmap present) is checked against
-    $SCRATCH, not Drive, since the mmap can only ever be verified locally,
-    and scratch has a ~90-day retention window, so "MC happened once" and
-    "the mmap is available right now" are different facts.
-"""
+"""Shared helpers for MC and CNMF-E session reconciliation."""
 
 from __future__ import annotations
 
@@ -36,19 +8,14 @@ import re
 import subprocess
 from pathlib import Path
 
-# Real mouse IDs all follow this convention (matches the validation the old
-# bash pipeline did with `[[ "$MOUSE" =~ ^VK_ ]]`). Needed because RawData on
-# Drive isn't purely session data, e.g. a CaImAn repo clone and a stray
-# "tests" folder happen to also be exactly three levels deep, indistinguishable
-# from mouse/date/tp by directory depth alone.
+# RawData on Drive also contains non-session dirs (repo clones, stray folders) at the same depth,
+# so we filter by mouse name pattern rather than relying on directory depth alone.
 MOUSE_NAME_PATTERN = re.compile(r"^VK_")
 
 GDRIVE_REMOTE = "gdrive"
 
-# If the rclone remote's root_folder_id is set to Drive's root (or any folder
-# ABOVE Miniscope), leave this as "Miniscope". If root_folder_id is instead set
-# to the Miniscope folder itself, set MINISCOPE_DRIVE_PREFIX="" (via env var)
-# so gdrive: already means Miniscope/ and paths don't get doubled up.
+# Set MINISCOPE_DRIVE_PREFIX="" if the rclone remote's root_folder_id points
+# directly to the Miniscope folder, to avoid doubling up the path prefix.
 MINISCOPE_DRIVE_PREFIX = os.environ.get("MINISCOPE_DRIVE_PREFIX", "Miniscope")
 
 
@@ -67,9 +34,6 @@ ANALYZED_ARCHIVAL = [
 ANALYZED_EXCLUDED = gdrive_path("AnalyzedData", "excluding_for_analysis")
 ANALYZED_DONE_PATHS = [ANALYZED_CANONICAL] + ANALYZED_ARCHIVAL
 
-# Mice to skip regardless of what Drive says. Mirrors the old hardcoded
-# EXCLUDE set in reconcile_cnmfe_sessions.py; kept here so both MC and
-# CNMF-E reconciliation share one list instead of drifting independently.
 EXCLUDE_MICE = {
     "VK_20250408_a",
     "VK_20250407_a",
@@ -95,12 +59,8 @@ def get_scratch_analyzed_base() -> str:
     return f"{scratch}/Miniscope/AnalyzedData"
 
 
-# ---------------------------------------------------------------------------
-# rclone wrappers
-# ---------------------------------------------------------------------------
-
 def rclone_list_files(remote_path: str) -> list[str]:
-    """All file paths under remote_path, recursively, relative to remote_path. [] if missing/empty."""
+    """Return all file paths under remote_path recursively, relative to remote_path."""
     result = subprocess.run(
         ["rclone", "lsf", "-R", "--files-only", remote_path],
         capture_output=True, text=True,
@@ -111,7 +71,7 @@ def rclone_list_files(remote_path: str) -> list[str]:
 
 
 def rclone_list_dirs(remote_path: str, max_depth: int | None = None) -> list[str]:
-    """All directory paths under remote_path, relative to remote_path. [] if missing/empty."""
+    """Return all directory paths under remote_path, relative to remote_path."""
     cmd = ["rclone", "lsf", "-R", "--dirs-only", remote_path]
     if max_depth is not None:
         cmd.insert(2, f"--max-depth={max_depth}")
@@ -121,15 +81,8 @@ def rclone_list_dirs(remote_path: str, max_depth: int | None = None) -> list[str
     return [line.strip().rstrip("/") for line in result.stdout.splitlines() if line.strip()]
 
 
-# ---------------------------------------------------------------------------
-# Session discovery
-# ---------------------------------------------------------------------------
-
 def discover_raw_sessions() -> list[tuple[str, str, str]]:
-    """
-    List every (mouse, date, tp) triple that exists under RawData on Drive.
-    A session is any directory exactly three levels deep under RawData.
-    """
+    """List every (mouse, date, tp) triple under RawData on Drive."""
     dirs = rclone_list_dirs(RAW_BASE, max_depth=3)
     sessions = []
     for d in dirs:
@@ -143,10 +96,7 @@ def discover_raw_sessions() -> list[tuple[str, str, str]]:
 
 
 def get_excluded_mice_from_drive() -> set[str]:
-    """
-    Mice found at all under excluding_for_analysis are treated as fully excluded,
-    regardless of which date/tp specifically triggered that.
-    """
+    """Return the set of mice found under excluding_for_analysis on Drive."""
     top_level_dirs = rclone_list_dirs(ANALYZED_EXCLUDED, max_depth=1)
     return {d.split("/")[0] for d in top_level_dirs if d}
 
@@ -156,12 +106,7 @@ def all_excluded_mice() -> set[str]:
 
 
 def iter_eligible_sessions(verbose: bool = False):
-    """
-    Shared discovery shell for both reconciliation scripts: discover raw
-    sessions, drop excluded mice, yield the rest as (mouse, date, tp).
-    Each caller's main() only needs to implement its own done/ready logic on
-    top of this, not re-derive session discovery + exclusion filtering.
-    """
+    """Yield (mouse, date, tp) for all raw sessions after filtering excluded mice."""
     raw_sessions = discover_raw_sessions()
     excluded_mice = all_excluded_mice()
 
@@ -172,10 +117,6 @@ def iter_eligible_sessions(verbose: bool = False):
             continue
         yield mouse, date, tp
 
-
-# ---------------------------------------------------------------------------
-# Drive-based "done" marker lookups
-# ---------------------------------------------------------------------------
 
 def collect_marker_dirs(base_paths: list[str], filename_matches) -> set[str]:
     """
@@ -196,22 +137,14 @@ def collect_marker_dirs(base_paths: list[str], filename_matches) -> set[str]:
 
 
 def is_correlation_image(fname: str) -> bool:
-    # The current pipeline always saves a bare correlation_image.npy, but
-    # some archival sessions (processed by an older/different script before
-    # this rewrite) only ever synced the PNG visualization, never the .npy
-    # itself. A PNG named correlation_image_... is just as strong evidence
-    # that MC actually ran as the .npy is, so both count.
+    # Some archival sessions only ever synced the PNG visualization, not the .npy.
+    # Both suffixes count as equally strong evidence that MC ran.
     name = fname.lower()
     return "correlation_image" in name and (name.endswith(".npy") or name.endswith(".png"))
 
 
 def is_cnmfe_model(fname: str) -> bool:
-    # The current pipeline saves both a .joblib and a .hdf5 for every run
-    # (see cnmfe_modeling.py's run_cnmfe), but some archival sessions only
-    # have the .hdf5 (or, older still, a plain pickle .p) with no .joblib
-    # at all. Any one of these is solid evidence CNMF-E actually completed
-    # for that session -- don't require the specific file the current
-    # pipeline happens to prefer.
+    # Archival sessions may only have .hdf5 or .p with no .joblib; all three count as done.
     name = fname.lower()
     return name.endswith(".joblib") or name.endswith(".hdf5") or name.endswith(".p")
 
@@ -228,12 +161,6 @@ def session_dir_variants(mouse: str, date: str, tp: str) -> list[str]:
 def marker_found(mouse: str, date: str, tp: str, marker_dirs: set[str]) -> bool:
     return any(v in marker_dirs for v in session_dir_variants(mouse, date, tp))
 
-
-# ---------------------------------------------------------------------------
-# Scratch-based (local filesystem) lookups -- these are the ones that can
-# never be answered from Drive (mmap), or that need to reflect what's
-# actually on disk right now rather than what once synced (90-day retention).
-# ---------------------------------------------------------------------------
 
 def scratch_candidates(analyzed_base: str, mouse: str, date: str, tp: str) -> list[Path]:
     return [Path(analyzed_base) / mouse / date / tp, Path(analyzed_base) / mouse / date]

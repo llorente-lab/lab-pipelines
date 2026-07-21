@@ -1,12 +1,5 @@
 #!/usr/bin/env python
-"""
-Picks the best-fitting kappa from a completed kappa-scan, using
-moseq2-viz's own get_model_kappa_scan_best_fit_wrapper() (which wraps
-get_best_fit() in moseq2_viz/model/util.py).
-
-Needs the container (moseq2_viz, and moseq2_model transitively) -- run via
-apptainer_python from a job script or manually, not imported by
-submit_moseq.py itself (host-side, pure stdlib).
+"""Pick the best-fitting kappa from a completed kappa-scan via moseq2-viz.
 
 Usage:
     apptainer_python select_best_kappa.py <project_root> [--objective ...] [--fps 30]
@@ -20,7 +13,7 @@ from pathlib import Path
 
 from moseq2_viz.helpers.wrappers import get_best_fit_model_wrapper
 
-DEFAULT_OBJECTIVE = "median_loglikelihood"  
+DEFAULT_OBJECTIVE = "median_loglikelihood"
 
 
 def select_best_kappa(project_root: str, objective: str = DEFAULT_OBJECTIVE, fps: int = 30) -> dict:

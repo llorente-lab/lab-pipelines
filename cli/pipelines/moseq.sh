@@ -1,28 +1,9 @@
 #!/bin/bash
-# Moseq pipeline wiring for `run` (see cli/run, pipelines.yaml).
-# Sourced by cli/run, not executed directly -- defines cmd_moseq,
-# cmd_logs_moseq, moseq_job_names, moseq_list_entry, moseq_help (no
-# cmd_queue_moseq: the dry-run status check lives at
-# `run moseq check-progress <name>`, a subcommand of cmd_moseq itself,
-# since it needs a project name rather than miniscope's --mouse-style
-# filters -- structurally different shape, so it doesn't fit the generic
-# `run queue <pipeline>` convention).
+# Sourced by cli/run. No cmd_queue_moseq: dry-run is `run moseq check-progress <name>`.
 
 MOSEQ_PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
 [ -d "$MOSEQ_PYTHON_MODULE_BIN" ] && PATH="$MOSEQ_PYTHON_MODULE_BIN:$PATH"
 
-# Parses --exclusive/--cores/--mem/--time out of "$@" -- common resource
-# overrides available on every stage, see submit_moseq.py's _resource_flags
-# docstring for what each one actually does. Sets:
-#   MOSEQ_EXCLUSIVE   Python bool literal ("True"/"False")
-#   MOSEQ_CORES_PY    bare int literal or "None", ready to splice
-#   MOSEQ_MEM_PY      bare int literal or "None", ready to splice
-#   MOSEQ_TIME_PY     quoted string literal or "None", ready to splice
-#   MOSEQ_REMAINING_ARGS   array of anything NOT recognized as one of the
-#                          four flags above -- NOT an error by itself, since
-#                          kappa-scan/learn-model have their own additional
-#                          flags to check this against; a stage with no
-#                          flags of its own should error if this is non-empty.
 _moseq_parse_resource_flags() {
   local exclusive="False" cores="" mem="" time=""
   MOSEQ_REMAINING_ARGS=()
@@ -46,10 +27,6 @@ moseq_project_dir() {
   echo "$MOSEQ_PROJECTS_BASE/$1"
 }
 
-# Project names become directory names and get embedded in a yaml file, so
-# keep them boring: letters, digits, underscore, hyphen only. Rejects
-# anything that could break path handling or look like a yaml value needing
-# escaping (spaces, colons, quotes, slashes).
 moseq_validate_name() {
   case "$1" in
     ""|*[!A-Za-z0-9_-]*)
@@ -59,12 +36,8 @@ moseq_validate_name() {
   esac
 }
 
-# Reads one "field: value" line out of a project_meta.yaml. Deliberately
-# not a real yaml parser -- project_meta.yaml is only ever written by
-# moseq_write_meta below with known-simple values (validated project names,
-# absolute paths, rclone remote paths), so a grep/sed line match is enough
-# and avoids needing a yaml library on the host (system python here is old
-# and doesn't ship pyyaml).
+# Not a real YAML parser -- project_meta.yaml is always written by moseq_write_meta with
+# known-simple values, so grep/sed is sufficient and avoids a pyyaml dependency.
 moseq_read_meta_field() {
   local file="$1" field="$2"
   grep "^${field}:" "$file" 2>/dev/null | head -n1 | sed "s/^${field}: *//"
@@ -80,9 +53,6 @@ created: $(date -Is)
 EOF
 }
 
-# Resolves <name> to its project directory and fails loudly if it doesn't
-# exist -- every compute-stage subcommand and `run logs moseq` need this
-# same check, so it's factored out rather than repeated per-stage.
 moseq_require_project() {
   local name="$1"
   moseq_validate_name "$name"
@@ -95,11 +65,6 @@ moseq_require_project() {
   echo "$project_dir"
 }
 
-# submit_moseq.py's functions all live on the host, imported via PYTHONPATH
-# rather than `cd`-ing into common/ first -- cd-ing would silently change
-# the calling shell's working directory out from under the user, which
-# `run` should never do. Every compute-stage subcommand below goes through
-# this so PYTHONPATH is set exactly once, consistently.
 moseq_python() {
   PYTHONPATH="$MOSEQ_COMMON_DIR${PYTHONPATH:+:$PYTHONPATH}" python3 "$@"
 }
@@ -107,17 +72,10 @@ moseq_python() {
 cmd_moseq() {
   local stage="${1-}"; shift || true
 
-  # `run moseq help` / `run moseq --help` / `run moseq -h` -- full command
-  # reference, same text `run --help` shows for moseq. Checked before the
-  # env-setup gate below on purpose: you shouldn't need a working
-  # environment just to read the help.
   if [ "$stage" = "help" ] || [ "$stage" = "--help" ] || [ "$stage" = "-h" ]; then
     moseq_help
     return 0
   fi
-  # `run moseq <stage> --help` -- one-line usage for that specific stage,
-  # instead of having to grep the full `moseq_help` text or dig through
-  # this file to find a stage's actual arguments.
   if [ "${1-}" = "--help" ] || [ "${1-}" = "-h" ]; then
     moseq_stage_usage "$stage"
     return $?
@@ -147,9 +105,6 @@ cmd_moseq() {
       fi
 
       mkdir -p "$project_dir"
-      # --source here only RECORDS the path, it never pulls -- init always
-      # creates an empty project shell, no exceptions. This just saves
-      # having to retype --source on the first `run moseq pull` afterward.
       moseq_write_meta "$project_dir" "$name" "$source"
       echo "run moseq init: created $project_dir"
       if [ -n "$source" ]; then
@@ -178,9 +133,6 @@ cmd_moseq() {
       local meta_file="$project_dir/project_meta.yaml"
 
       if [ -z "$source" ]; then
-        # No --source given -- fall back to whatever was recorded on init
-        # or a previous pull, so re-syncing later doesn't require retyping
-        # the Drive path every time.
         if [ -f "$meta_file" ]; then
           source="$(moseq_read_meta_field "$meta_file" "gdrive_source")"
         fi
@@ -190,16 +142,6 @@ cmd_moseq() {
         fi
       fi
 
-      # Submitted as a job, not run inline: rclone transfers of real Moseq
-      # session data can be large (many GB), and Sherlock login nodes are
-      # shared/rate-limited -- sustained transfers there risk throttling.
-      # pull.sbatch runs on Sherlock's shared `normal` partition (never
-      # illorent -- a non-exclusive job sitting on illorent would block the
-      # lab's --exclusive compute jobs from starting, since --exclusive
-      # needs the whole node free). This makes `run moseq pull`
-      # asynchronous: it returns immediately with a job ID instead of
-      # blocking with live --progress output the way it used to. Watch
-      # progress with `run moseq logs pull <name>`, or just let it run.
       local log_dir="$project_dir/slurm_logs"
       mkdir -p "$log_dir"
       local job_output
@@ -421,13 +363,8 @@ print('  best model selected: ', best_model_is_selected('$project_dir', progress
   esac
 }
 
-# Moseq logs live inside the project itself (<project>/slurm_logs/), one
-# <stage>-<jobid>.out/.err pair per submission -- see submit_moseq.py's
-# _log_flags() and pull's own explicit --output/--error flags above. Stage
-# names here must match the exact strings used as the log-file prefix
-# (underscores, not hyphens, e.g. "pca_fit" not "pca-fit"), even though the
-# CLI subcommands themselves use hyphens (`run moseq pca-fit`) for
-# readability -- this mapping bridges the two.
+# Stage names must match the log-file prefix (underscores, not hyphens, e.g. "pca_fit"
+# not "pca-fit") -- CLI subcommands use hyphens, log files use underscores.
 cmd_logs_moseq() {
   local stage="${1-}"; shift || true
   local name="${1-}"; shift || true
@@ -486,11 +423,6 @@ moseq
 EOF
 }
 
-# One-line usage for a single stage, used by `run moseq <stage> --help`.
-# Keep in sync with moseq_help()'s per-stage lines below -- there's no
-# single source of truth between the two on purpose (moseq_help's lines
-# read naturally as part of a paragraph; these need to stand alone), but
-# they should never actually say different things.
 moseq_stage_usage() {
   case "$1" in
     init)           echo "usage: run moseq init <project_name> [--source <gdrive_path>]" ;;
@@ -501,15 +433,6 @@ moseq_stage_usage() {
     pca-fit)        echo "usage: run moseq pca-fit <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     pca-apply)      echo "usage: run moseq pca-apply <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     changepoints)   echo "usage: run moseq changepoints <project_name> [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
-    # TODO (future, not urgent): kappa-scan/learn-model only expose a
-    # curated subset of moseq2-model's real CLI flags (n-models,
-    # scan-scale, min/max-kappa, num-iter, kappa, dest-name). Someday it'd
-    # be nice to let a caller pass arbitrary extra moseq2-model flags
-    # straight through (e.g. --robust, --separate-trans, --hold-out) for
-    # non-default runs, instead of this file needing a new named flag
-    # added by hand every time moseq2-model grows one worth using. Not
-    # implementing now -- current curated set covers everything actually
-    # used so far.
     kappa-scan)     echo "usage: run moseq kappa-scan <project_name> [--n-models N --scan-scale log|linear --min-kappa K --max-kappa K --num-iter N] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     learn-model)    echo "usage: run moseq learn-model <project_name> --kappa K [--num-iter N --dest-name NAME] [--exclusive] [--cores N] [--mem MEM] [--time T]" ;;
     master)         echo "usage: run moseq master <project_name> [--exclusive]  (chains extract -> aggregate -> pca-fit -> pca-apply -> changepoints; --cores/--mem/--time not supported here)" ;;

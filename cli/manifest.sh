@@ -1,18 +1,6 @@
 #!/bin/bash
-# Purpose-built reader for pipelines.yaml's specific shape (a flat
-# "pipelines:" list of small key/value maps) -- deliberately NOT a general
-# YAML parser. Same philosophy as project_meta.yaml's grep/sed handling
-# elsewhere in this repo: this is the only reader of this exact file, so it
-# only needs to understand this exact shape, not arbitrary YAML nesting.
-# Avoids adding a yq/pyyaml dependency (system python on Sherlock login
-# nodes doesn't ship pyyaml, and yq isn't guaranteed to be installed) for a
-# small config file.
-#
-# load_pipeline_manifest <path-to-pipelines.yaml> emits one colon-delimited
-# line per pipeline entry:
-#   name:module:env_setup:required_env_var:sif_var:resources_yaml
-# -- callers (cli/run, cli/setup.sh) just loop over that with a plain
-# `while IFS=: read -r ...`, same as before this was ever YAML.
+# Not a general YAML parser -- purpose-built for pipelines.yaml's flat structure,
+# avoiding a yq/pyyaml dependency.
 load_pipeline_manifest() {
   local manifest="$1"
   awk '

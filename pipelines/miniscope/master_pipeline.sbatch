@@ -1,26 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=caiman_master
-# Resources come from the registry (miniscope/resources.yaml) when submitted via `run`.
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=7-00:00:00
-# No --output/--error here: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh,
-# sourced automatically via ~/.bashrc) point these at an organized, global
-# location under $SCRATCH/logs/caiman_master/ regardless of where this gets
-# submitted from. Falls back to Slurm's default (slurm-%j.out in the
-# submission directory) if those env vars aren't set for some reason.
+# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
+# $SCRATCH/logs/caiman_master/. Falls back to slurm-%j.out if those vars aren't set.
 #
-# Full pipeline, full sweep only (no per-mouse/per-session mode here -- use
-# motion_correction.sbatch / cnmfe.sbatch directly for that). Enforces the
-# hard gate: every session motion correction can find gets processed and
-# verified BEFORE any CNMF-E starts. If verification finds leftover MC work
-# after the sweep (a failure, or something new that appeared mid-run), the
+# Full sweep only. Enforces a hard gate: if any MC work remains after the sweep, the
 # job aborts rather than silently starting CNMF-E on an incomplete state.
 
-# NOTE: sbatch runs this script from a copied/spooled path, not its real
-# location, so BASH_SOURCE-derived paths don't work here. CAIMAN_ROOT points
-# at the `current` symlink the deploy agent maintains (see
-# deploy/poll_and_deploy.sh) instead.
+# sbatch spools scripts to a temp path, so BASH_SOURCE-derived paths don't work here.
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/pipelines/miniscope}"
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 
@@ -30,8 +19,6 @@ start_resource_monitor "$SCRATCH/logs/resource_monitor/master_${SLURM_JOB_ID}.ts
 echo "=========================================="
 echo "caiman master pipeline starting: $(date)"
 echo "=========================================="
-
-# --- stage 1: motion correction, full sweep ---------------------------------
 
 echo ""
 echo "stage 1: motion correction"
@@ -62,8 +49,6 @@ rm -f "$MC_SESSIONS_FILE"
 echo ""
 echo "stage 1 complete, failures: $MC_FAILURES"
 
-# --- gate: verify nothing is left needing MC before proceeding --------------
-
 echo ""
 echo "gate: re-checking for outstanding MC work"
 
@@ -82,8 +67,6 @@ fi
 rm -f "$GATE_CHECK_FILE"
 
 echo "gate passed: no outstanding MC work"
-
-# --- stage 2: CNMF-E, full sweep --------------------------------------------
 
 echo ""
 echo "stage 2: CNMF-E"

@@ -1,10 +1,4 @@
-"""
-Project-level (PCA/modeling) progress for a Moseq project. Thin wrapper
-around moseq2-app's own generate_intital_progressfile()/find_progress(),
-confirmed safe to call directly outside any GUI/notebook context (no
-ipywidgets coupling, pure stdlib + ruamel.yaml + toolz +
-moseq2_extract.helpers.data.check_completion_status internally).
-"""
+"""Project-level PCA/modeling progress for a Moseq project."""
 
 from __future__ import annotations
 
@@ -15,13 +9,7 @@ from moseq2_app.gui.progress import generate_initial_progressfile
 
 
 def get_progress(project_root: str) -> dict:
-    """
-    Refresh and return Moseq's own progress.yaml for a project. Always
-    resolves project_root to an absolute path and passes an absolute
-    progress-file path (generate_intital_progressfile's default is a
-    relative "progress.yaml", which would otherwise resolve against
-    whatever this function's caller's cwd happens to be).
-    """
+    """Refresh and return Moseq's progress.yaml for a project."""
     root = Path(project_root).resolve()
     progress_file = str(root / "progress.yaml")
 
@@ -40,15 +28,9 @@ def pca_is_done(project_root: str, progress: dict | None = None) -> bool:
 
 
 def modeling_is_done(project_root: str, progress: dict | None = None) -> bool:
-    """
-    True once at least one model has been trained (kappa-scan or a single
-    fit), i.e. base_model_path is populated and non-empty. This is
-    deliberately NOT the same question as "has a best model been selected"
-    -- see best_model_is_selected() below. progress.yaml has no plain
-    "model_path" field (an earlier version of this file incorrectly assumed
-    one); the real fields are base_model_path (folder of all trained
-    models) and model_session_path (the one model picked for analysis).
-    """
+    """True once at least one model exists in base_model_path (kappa-scan or single fit).
+
+    Distinct from best_model_is_selected(): models can exist without a winner being chosen."""
     if progress is None:
         progress = get_progress(project_root)
     base_model_path = progress.get("base_model_path")
@@ -59,12 +41,7 @@ def modeling_is_done(project_root: str, progress: dict | None = None) -> bool:
 
 
 def best_model_is_selected(project_root: str, progress: dict | None = None) -> bool:
-    """
-    True once a specific model has been chosen for downstream analysis
-    (progress.yaml's model_session_path), e.g. after "Get Best Model Fit"
-    has run. A project can have modeling_is_done() == True (models were
-    trained) while this is still False (nobody picked one yet).
-    """
+    """True once model_session_path is populated in progress.yaml."""
     if progress is None:
         progress = get_progress(project_root)
     return bool(progress.get("model_session_path"))

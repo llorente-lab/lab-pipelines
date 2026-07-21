@@ -2,9 +2,8 @@
 # Lightweight per-job CPU/memory sampler.
 #
 # Usage (call once after the job's project_root / log dir is known):
-#
 #   start_resource_monitor <log_file> [interval_seconds]
-#
+
 # Starts a background loop that appends one TSV row per interval.
 # The loop stops automatically when the parent job exits (it's a child
 # of this shell, so SLURM's cleanup kills it when the job ends).

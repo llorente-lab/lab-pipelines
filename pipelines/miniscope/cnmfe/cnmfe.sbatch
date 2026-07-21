@@ -1,32 +1,16 @@
 #!/bin/bash
 #SBATCH --job-name=cnmfe
-# Resources come from the registry (miniscope/resources.yaml) when submitted via `run`.
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=7-00:00:00
-# No --output/--error here: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh,
-# sourced automatically via ~/.bashrc) point these at an organized, global
-# location under $SCRATCH/logs/cnmfe/ regardless of where this gets
-# submitted from. Falls back to Slurm's default (slurm-%j.out in the
-# submission directory) if those env vars aren't set for some reason.
+# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
+# $SCRATCH/logs/cnmfe/. Falls back to slurm-%j.out if those vars aren't set.
 #
-# Standalone CNMF-E stage. Same three granularities as motion_correction.sbatch:
-#
-#   sbatch cnmfe.sbatch                    # full sweep
-#   sbatch cnmfe.sbatch <mouse>             # everything reconciliation finds for one mouse
-#   sbatch cnmfe.sbatch <mouse> <date> <tp> # exactly one session, run directly
-#
-# Unlike motion_correction.sbatch, this stage has its own internal two-phase
-# gate: reconcile_cnmfe.py can discover sessions that need MC (re-)run first
-# (entry point 2, mmap missing/expired on scratch). Those get motion-corrected
-# and synced BEFORE this script re-checks for newly-ready CNMF-E sessions.
-# This is a local gate scoped to this run, not the same thing as the global
-# hard gate in master_pipeline.sbatch.
+# Has an internal two-phase gate: sessions that need MC first get motion-corrected before
+# this script re-checks for newly-ready CNMF-E sessions (local gate, not the global hard
+# gate in master_pipeline.sbatch).
 
-# NOTE: sbatch runs this script from a copied/spooled path, not its real
-# location, so BASH_SOURCE-derived paths don't work here. CAIMAN_ROOT points
-# at the `current` symlink the deploy agent maintains (see
-# deploy/poll_and_deploy.sh) instead.
+# sbatch spools scripts to a temp path, so BASH_SOURCE-derived paths don't work here.
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/pipelines/miniscope}"
 source "$CAIMAN_ROOT/common/pipeline_common.sh"
 

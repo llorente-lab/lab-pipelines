@@ -1,10 +1,5 @@
 #!/bin/bash
-# Aggregates every session's proc/ output into aggregate_results/ and
-# (re)generates moseq2-index.yaml. --output/--error passed by
-# submit_moseq.py as explicit sbatch CLI flags, not set here -- see
-# submit_moseq.py's _log_flags() docstring for why.
 #SBATCH --job-name=moseq-aggregate
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
 #SBATCH --time=04:00:00
 

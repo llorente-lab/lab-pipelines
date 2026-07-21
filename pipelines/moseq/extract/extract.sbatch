@@ -1,31 +1,11 @@
 #!/bin/bash
-# Extracts all unextracted sessions under project_root, one session at a
-# time, calling moseq2-extract's plain `extract` command (NOT
-# `batch-extract`) with an explicit --output-dir <session>/proc per
-# session. Deliberately NOT using `batch-extract --cluster-type local`:
-# that command's own CLI (moseq2_extract/cli.py) captures --output-dir via
-# click but only ever forwards it into config_data on the `slurm` branch --
-# on `cluster_type == "local"` (which is what we always pass, see
-# submit_moseq.py's module docstring on why we never nest Slurm inside
-# Apptainer), output_dir is silently dropped before calling
-# run_local_extract, so it never lands where the caller expects. Confirmed
-# real bug in moseq2-extract's CLI, not something fixable from this
-# script -- worth a proper upstream fix in the llorente-lab fork someday,
-# but the per-session `extract` loop below sidesteps it entirely since
-# plain `extract` forwards output_dir correctly with no such branch.
-# --output/--error passed as explicit sbatch CLI flags by submit_moseq.py
-# (see submit_moseq.py's _log_flags() docstring for why: project_root
-# isn't known until submission time, and CLI flags are the only thing
-# guaranteed to beat a stray SBATCH_OUTPUT env var per Slurm's own
-# precedence rules).
+# Sequential-loop fallback for extraction (one job, all sessions). Use extract_array.sbatch
+# for the preferred job-array variant.
 #
-# This used to be two scripts -- this one (looping every unextracted
-# session in a single job) and a near-identical extract_session.sbatch
-# for a single session -- but submit_moseq.py's submit_extraction() only
-# ever called this one; extract_session.sbatch was dead code and has been
-# removed rather than kept in sync by hand.
+# Uses plain `extract` per session rather than `batch-extract --cluster-type local`:
+# batch-extract's CLI silently drops --output-dir on the local branch (confirmed bug in
+# moseq2-extract), so output never lands where expected. Plain `extract` forwards it correctly.
 #SBATCH --job-name=moseq-extract
-# Resources come from the registry (moseq/resources.yaml) when submitted via submit_moseq.py.
 #SBATCH --partition=illorent
 #SBATCH --time=4-00:00:00
 
@@ -44,6 +24,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
   # --camera-type azure: extraction param defaults are set for an Azure
   # Kinect camera, not moseq2-extract's default (k2/Kinect v2) -- Azure is
   # what this lab actually records with.
+  # --camera-type azure: lab records with Azure Kinect, not moseq2-extract's default (Kinect v2).
   apptainer_exec moseq2-extract generate-config --output-file "$CONFIG_FILE" --camera-type azure
 fi
 

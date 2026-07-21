@@ -1,37 +1,8 @@
 #!/usr/bin/env python
-"""
-Reconcile which sessions need motion correction.
+"""Determine which sessions need motion correction.
 
-Entry point 1 (standalone): a raw session exists on Drive, and no
-correlation-image marker AND no CNMF-E model marker exists for it anywhere
-in AnalyzedData (canonical or archival, checked at both mouse/date/tp and
-mouse/date depth). This is the Drive-visible proxy for "MC hasn't run yet",
-since the mmap itself never syncs to Drive.
-
-Two different markers count as proof MC is done, checked independently:
-
-  - A correlation-image marker (correlation_image.npy, what the current
-    pipeline saves, or correlation_image_*.png -- some archival sessions,
-    processed by an older script before this rewrite, only ever synced the
-    PNG visualization, never the .npy itself).
-  - A CNMF-E model marker (.joblib/.hdf5/.p). This is a *stronger* signal
-    than the correlation image, not a weaker fallback: CNMF-E structurally
-    cannot produce a model without MC's mmap and correlation image as
-    input, so a model existing proves MC succeeded even if that specific
-    session's correlation-image file was never synced to Drive at all, or
-    was named in a way that doesn't match either pattern above (seen in
-    practice: an archival session with a real .joblib but no recognizable
-    correlation_image file anywhere in its Drive folder).
-
-Entry point 2 (from CNMF-E reconciliation) is NOT handled here: it's the case
-where a correlation image exists (MC ran at some point) but the mmap has
-since aged out of $SCRATCH's ~90-day retention window. That can only be
-detected by reconcile_cnmfe.py, which checks scratch directly. Run this
-script's output together with `reconcile_cnmfe.py --print-needs-mc` to get
-the full MC queue.
-
-Excluded sessions (mice in EXCLUDE_MICE, or found under
-Miniscope/AnalyzedData/excluding_for_analysis) are skipped entirely.
+A CNMF-E model marker (.joblib/.hdf5/.p) counts as proof MC ran even without a
+correlation image, because CNMF-E cannot complete without MC's output.
 
 Usage:
     python reconcile_motion_correction.py [--print-output] [--verbose]
@@ -41,7 +12,6 @@ import argparse
 import sys
 from pathlib import Path
 
-# reconcile_common.py lives in ../common relative to this file
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 from reconcile_common import (
     ANALYZED_DONE_PATHS,

@@ -65,8 +65,14 @@ CLI_DIR="$REPO_ROOT/cli"
 # shellcheck disable=SC1091
 source "$CLI_DIR/resources.sh"
 
-echo "-- _set_resource_flags miniscope motion-correction --"
+# _set_resource_flags/_force_exclusive just record state now -- the actual
+# registry lookup + flag computation happens once, in _apply_resource_overrides
+# (a single call into estimate_resources.py's resource_flags()), same contract
+# miniscope.sh already relies on (it always calls _apply_resource_overrides
+# last, even with empty overrides).
+echo "-- _set_resource_flags + _apply_resource_overrides (no overrides): registry defaults --"
 _set_resource_flags miniscope motion-correction "n_sessions=1"
+_apply_resource_overrides "" "" ""
 flags="${RESOURCE_FLAGS[*]}"
 _assert_contains "$flags" "--partition=" "sets a --partition"
 _assert_contains "$flags" "--cpus-per-task=" "sets --cpus-per-task from the registry"
@@ -74,6 +80,7 @@ _assert_contains "$flags" "--mem=" "sets --mem from the registry"
 
 echo "-- _force_exclusive strips cores/mem, adds --exclusive once --"
 _force_exclusive
+_apply_resource_overrides "" "" ""
 flags="${RESOURCE_FLAGS[*]}"
 _assert_not_contains "$flags" "--cpus-per-task=" "--force_exclusive strips --cpus-per-task"
 _assert_not_contains "$flags" "--mem=" "--force_exclusive strips --mem"
@@ -81,7 +88,7 @@ _assert_contains "$flags" "--exclusive" "--force_exclusive adds --exclusive"
 exclusive_count=$(grep -o -- "--exclusive" <<<"$flags" | wc -l)
 if [ "$exclusive_count" -eq 1 ]; then _ok "--exclusive appears exactly once"; else _fail "--exclusive appears $exclusive_count times (expected 1)"; fi
 
-echo "-- _apply_resource_overrides wins over --force_exclusive's stripped cores/mem --"
+echo "-- _apply_resource_overrides wins over --exclusive's stripped cores/mem --"
 _apply_resource_overrides "32" "128" "1-00:00:00"
 flags="${RESOURCE_FLAGS[*]}"
 _assert_contains "$flags" "--cpus-per-task=32" "explicit --cores override applied on top of --exclusive"

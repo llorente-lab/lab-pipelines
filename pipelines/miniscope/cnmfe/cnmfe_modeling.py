@@ -1,29 +1,8 @@
 #!/usr/bin/env python
-"""
-CNMF-E Modeling - Sherlock / Apptainer Edition
-
-Seeded CNMF-E using manual ROI masks for Miniscope data.
-Spatial seeds (Ain) come from the ROI zip; temporal seeds (Cin) are
-computed by streaming A.T @ frames in chunks before the cluster starts,
-so each ROI's initial trace is the mean fluorescence within its mask.
-
-Requires, per session:
-    - Motion-corrected mmap file (*.mmap with 'order_c' in name)
-    - ROI file (*.zip from ImageJ/FIJI)
-    - Correlation image (correlation_image.npy)
-
-Directory resolution:
-    Tries {analyzed_base}/{mouse}/{date}/{tp}/ first (current convention),
-    then falls back to {analyzed_base}/{mouse}/{date}/ (older sessions that
-    predate the tp-level directory convention). Whichever of the two actually
-    contains all three required files wins; if neither does, this fails with
-    a clear error naming both paths it checked.
+"""Seeded CNMF-E for Miniscope data using manual ROI masks.
 
 Usage:
     python cnmfe_modeling.py <mouse> <date> <tp> [--analyzed-base <path>]
-
-Environment variables (optional):
-    MINISCOPE_ANALYZED_BASE - Base path for AnalyzedData
 """
 from __future__ import annotations
 import roifile
@@ -51,7 +30,6 @@ from caiman.source_extraction import cnmf
 from caiman.source_extraction.cnmf import params as params
 from caiman.utils.visualization import plot_contours
 
-# reconcile_common.py lives in ../common relative to this file
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 from reconcile_common import ANALYZED_DONE_PATHS, is_roi_zip, rclone_list_files, session_dir_variants
 
@@ -75,10 +53,6 @@ logger.addHandler(handler)
 
 print(f"{psutil.cpu_count()} CPUs available")
 
-
-# ---------------------------------------------------------------------------
-# Path resolution
-# ---------------------------------------------------------------------------
 
 def on_sherlock() -> bool:
     return (
@@ -163,12 +137,8 @@ def resolve_analyzed_path(analyzed_base: str, mouse: str, date: str, tp: str) ->
     raise FileNotFoundError("\n".join(lines))
 
 
-# ---------------------------------------------------------------------------
-# ROI masks → spatial seed (Ain)
-# ---------------------------------------------------------------------------
-
 def load_roi_masks(roi_path: Path, dims: tuple) -> sp.csc_matrix:
-    """Load ROI masks from an ImageJ/FIJI .zip file -> sparse (n_pixels, n_rois) matrix."""
+    """Load ROI masks from an ImageJ/FIJI .zip file into a sparse (n_pixels, n_rois) matrix."""
     print(f"\nLoading ROI masks from {roi_path}")
     rois = roifile.ImagejRoi.fromfile(roi_path)
     if not isinstance(rois, list):
@@ -194,26 +164,16 @@ def load_roi_masks(roi_path: Path, dims: tuple) -> sp.csc_matrix:
     n_pixels = dims[0] * dims[1]
     A_init = sp.lil_matrix((n_pixels, len(masks)), dtype=np.float32)
     for i, mask in enumerate(masks):
-        flat_mask = mask.flatten('F')  # Fortran order matches CaImAn convention
+        flat_mask = mask.flatten('F')  # Fortran order required by CaImAn
         A_init[flat_mask, i] = 1.0
     A_init = A_init.tocsc()
     print(f"Spatial seed matrix: {A_init.shape}")
     return A_init
 
 
-# ---------------------------------------------------------------------------
-# Temporal seed (Cin) via streaming A.T @ frames
-# ---------------------------------------------------------------------------
-
 def extract_temporal_seed(A: sp.csc_matrix, images: np.ndarray, dims: tuple,
                           out_dir: Path, chunk_size: int = 5000) -> np.ndarray:
-    """
-    Compute C_init = (A / |A|).T @ frames streaming in chunks.
-
-    Each ROI's trace is the mean fluorescence within its mask over time.
-    Result is memory-mapped to out_dir/C_star.npy and returned as a
-    (n_rois, T) float32 array. Existing file is reused if shape matches.
-    """
+    """Compute C_init = (A / |A|).T @ frames in chunks; memory-mapped to out_dir/C_star.npy."""
     H, W = dims
     T = images.shape[0]
     n_rois = A.shape[1]
@@ -233,7 +193,6 @@ def extract_temporal_seed(A: sp.csc_matrix, images: np.ndarray, dims: tuple,
     print(f"Computing temporal seed: {n_rois} ROIs x {T} frames, chunk_size={chunk_size}")
     C = np.memmap(str(c_path), dtype=np.float32, mode='w+', shape=(n_rois, T))
 
-    # Normalise each column of A by its pixel count so result = mean fluorescence per ROI
     roi_sums = np.asarray(A.sum(axis=0)).ravel().astype(np.float32)
     roi_sums[roi_sums == 0] = 1.0
     A_t = A.T.tocsr()
@@ -257,10 +216,6 @@ def extract_temporal_seed(A: sp.csc_matrix, images: np.ndarray, dims: tuple,
     return C
 
 
-# ---------------------------------------------------------------------------
-# Cluster
-# ---------------------------------------------------------------------------
-
 def start_cluster():
     gc.collect()
     _, cluster, n_processes = cm.cluster.setup_cluster(
@@ -269,10 +224,6 @@ def start_cluster():
     print(f"Cluster started with {n_processes} processes")
     return cluster, n_processes
 
-
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
 
 def run_cnmfe(mouse: str, date: str, tp: str, analyzed_base: str):
     cluster = None
@@ -291,7 +242,6 @@ def run_cnmfe(mouse: str, date: str, tp: str, analyzed_base: str):
 
         A_init = load_roi_masks(files['roi'], dims)
 
-        # Compute temporal seed before starting the cluster (pure numpy/sparse, no Dask).
         C_init = extract_temporal_seed(A_init, images, dims, analyzed_path)
 
         opts = params.CNMFParams(params_dict={
@@ -307,8 +257,8 @@ def run_cnmfe(mouse: str, date: str, tp: str, analyzed_base: str):
             'p':                          1,
             'tsub':                       2,
             'ssub':                       1,
-            'rf':                         None,    # process whole frame, not patches
-            'only_init':                  False,   # run full fit, not just initialization
+            'rf':                         None,
+            'only_init':                  False,
             'nb':                         0,
             'nb_patch':                   0,
             'method_deconvolution':       'oasis',
@@ -341,10 +291,9 @@ def run_cnmfe(mouse: str, date: str, tp: str, analyzed_base: str):
               f"{cnm_model.estimates.A.shape[1]} components")
 
         cnm_model.estimates.Cn = Cn
-        cnm_model.dview = None  # pool objects can't be pickled
+        cnm_model.dview = None  # pool objects can't be pickled; clear before saving
 
-        # Save results — all filenames include tp so outputs from different
-        # timepoints never collide in the same mouse/date directory.
+        # Filenames include tp so outputs from different timepoints don't collide in the same directory.
         joblib_path = analyzed_path / f'cnmfe_model_seeded_{mouse}_{date}_{tp}.joblib'
         joblib.dump(cnm_model, str(joblib_path))
         print(f"Saved model: {joblib_path.name}")

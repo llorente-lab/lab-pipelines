@@ -1,29 +1,8 @@
 #!/bin/bash
-# One-time (and safely re-runnable) environment bootstrap for a new lab
-# member. Run this once by full path, since nothing's on $PATH yet before
-# it runs:
-#
+# Idempotent environment bootstrap. Run by full path:
 #   bash $GROUP_HOME/pipelines/current/cli/setup.sh
-#
-# Idempotent by design: reruns are the intended way to re-check or repair
-# your setup later (e.g. if a Sherlock software update moves something this
-# pipeline depends on), not just for first-time use. There's no separate
-# "verify" command -- running this script again IS the verify/fix step.
-#
-# Scoped strictly to "become someone who can run pipelines." It does not
-# touch git, does not clone anything, does not set up the deploy agent's
-# scrontab -- those are separate, smaller-audience concerns (see the
-# top-level README's "Adding a new pipeline" / one-time deploy setup
-# sections) that most lab members never need to think about.
-#
-# Manifest-driven, same as cli/run: reads pipelines.yaml (via
-# cli/manifest.sh) and checks/wires up every listed pipeline generically,
-# rather than hardcoding a block per pipeline here. Adding a third pipeline
-# means adding one entry to pipelines.yaml -- this file doesn't need
-# to change.
 
-set -uo pipefail  # deliberately not -e: a failed check should still let
-                   # later checks run and report, not abort the whole script
+set -uo pipefail  # not -e: a failed check shouldn't stop later checks from running
 
 SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANIFEST="$SETUP_DIR/../pipelines.yaml"
@@ -66,8 +45,6 @@ fi
 
 echo ""
 
-# --- per-pipeline checks + .bashrc wiring, driven by the manifest ----------
-
 if [ -f "$MANIFEST" ]; then
   while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resources_yaml; do
     [ -z "$p_name" ] && continue
@@ -78,9 +55,7 @@ if [ -f "$MANIFEST" ]; then
     if [ -e "$PIPELINES_ROOT/current" ]; then
       env_file="$REPO_ROOT/$p_env_relpath"
       if [ -f "$env_file" ]; then
-        # Source it in a subshell just to read the container-image var
-        # without polluting this script's own environment or re-running
-        # its side effects (mkdir, echo) twice.
+        # Subshell avoids polluting this script's environment with env_setup.sh side effects.
         eval "$(bash -c "source '$env_file' >/dev/null 2>&1; echo VAL=\$$p_sif_var")"
         check "$p_name container image exists (\$$p_sif_var)" '[ -f "$VAL" ]'
       else
@@ -99,9 +74,6 @@ if [ -f "$MANIFEST" ]; then
   done < <(load_pipeline_manifest "$MANIFEST")
 fi
 
-# rclone config is shared across every pipeline (same $RCLONE_CONFIG
-# default in every env_setup.sh), so it's only worth checking once here
-# rather than per-pipeline above.
 if [ -n "${GROUP_HOME-}" ]; then
   check "rclone config exists (\$GROUP_HOME/rclone/rclone.conf)" '[ -f "$GROUP_HOME/rclone/rclone.conf" ]'
 fi

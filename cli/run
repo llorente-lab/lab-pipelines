@@ -1,23 +1,4 @@
 #!/bin/bash
-# `run` -- the one command a lab member needs to run pipelines, check on
-# them, and find their logs, without ever cd-ing into the deployed tree or
-# remembering sbatch argument order/paths.
-#
-# Manifest-driven: pipelines.yaml (repo root) lists each pipeline (name, its
-# cli/pipelines/<name>.sh module, its env_setup.sh, the env var to sanity-
-# check after sourcing it). This file itself stays generic -- it sources
-# every pipeline's module and env_setup.sh, then dispatches by name.
-# Per-pipeline logic (cmd_<name>, cmd_logs_<name>, optionally
-# cmd_queue_<name>, plus <name>_job_names/<name>_list_entry/<name>_help for
-# `run status`/`run list`/`run --help`) lives in cli/pipelines/<name>.sh,
-# found purely by naming convention -- no registration step beyond the one
-# entry in pipelines.yaml. Adding a third pipeline means adding one
-# entry there and one new file, not touching this one.
-#
-# This file (and everything it sources) is deployed through the same
-# `current` symlink as everything else (env_setup.sh puts cli/ on $PATH),
-# so it updates automatically on every deploy -- no separate install/
-# versioning story.
 
 set -euo pipefail
 
@@ -36,18 +17,9 @@ source "$CLI_DIR/manifest.sh"
 # shellcheck disable=SC1091
 source "$CLI_DIR/resources.sh"
 
-# --- load every pipeline from the manifest ----------------------------------
-# `run` bootstraps its OWN environment here (sources each pipeline's
-# env_setup.sh directly, unconditionally) rather than depending on the
-# caller's shell having already sourced anything. Two reasons: (1) shell
-# FUNCTIONS defined by env_setup.sh (apptainer_python, apptainer_rclone,
-# ...) do NOT cross process boundaries the way exported env vars do -- `run`
-# is found via $PATH and executed as its own child process, so even a
-# caller who dutifully sourced env_setup.sh in their interactive shell
-# leaves this process with none of those functions defined, unless we
-# source it again ourselves, in here. (2) this also means `run` works from
-# a completely fresh shell with nothing pre-sourced, which is a nice bonus.
-# Safe/idempotent to source twice if the caller's shell also did it.
+# Shell functions defined by env_setup.sh do NOT cross process boundaries --
+# `run` is its own child process, so sourcing here is required even if the
+# caller already sourced env_setup.sh in their interactive shell.
 PIPELINE_NAMES=()
 declare -A PIPELINE_ENV_VAR
 
@@ -73,11 +45,6 @@ while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resource
   PIPELINE_ENV_VAR["$p_name"]="$p_env_var"
 done < <(load_pipeline_manifest "$MANIFEST")
 
-# --- generic env sanity gate, called by dispatch below ----------------------
-# Checked once per pipeline invocation, using the required_env_var column
-# from the manifest -- catches a missing/broken env_setup.sh (e.g. this
-# pipeline's env file didn't exist at $env_file above) with one clear error
-# instead of a confusing "command not found" three layers down.
 require_pipeline_env() {
   local name="$1" var="${PIPELINE_ENV_VAR[$1]-}"
   if [ -z "$var" ] || [ -z "${!var-}" ]; then
@@ -85,8 +52,6 @@ require_pipeline_env() {
     exit 1
   fi
 }
-
-# --- usage / help -------------------------------------------------------
 
 usage() {
   cat <<EOF
@@ -120,13 +85,7 @@ after the two paths is passed straight through to rclone, e.g.:
 EOF
 }
 
-# --- generic subcommands -------------------------------------------------
-
 cmd_status() {
-  # Scoped to every pipeline's known job names (collected from each
-  # module's <name>_job_names) plus a small fixed base list, rather than a
-  # bare `squeue -u`, so this doesn't also show unrelated interactive/
-  # other-project jobs.
   local names="lab_pipelines_deploy"
   local name
   for name in "${PIPELINE_NAMES[@]}"; do
@@ -150,13 +109,7 @@ cmd_logs() {
 }
 
 cmd_sync() {
-  # Deliberately raw: no default --exclude, no assumed direction. sync.sh
-  # (used internally after every MC/CNMF-E run) still bakes in the
-  # mmap/avi excludes that make sense for that specific, automatic case --
-  # this command is the general-purpose escape hatch for everything else,
-  # so the safety net is opt-in per call (pass --exclude yourself) rather
-  # than baked in. Goes through apptainer_rclone since plain `rclone` isn't
-  # on Sherlock's compute node PATH.
+  # Goes through apptainer_rclone since plain `rclone` isn't on Sherlock's compute node PATH.
   local src="${1-}" dst="${2-}"
   if [ -z "$src" ] || [ -z "$dst" ]; then
     echo "run sync: usage: run sync <src> <dst> [rclone flags...]" >&2
@@ -167,10 +120,6 @@ cmd_sync() {
 }
 
 cmd_queue() {
-  # `run queue <pipeline> ...` dispatches to cmd_queue_<pipeline> if that
-  # pipeline's module defines one -- not every pipeline has a top-level
-  # queue dry-run in this shape (moseq's lives at `run moseq queue <name>`
-  # instead, since it needs a project name, not --mouse-style filters).
   local pipeline="${1-}"; shift || true
   local name
   for name in "${PIPELINE_NAMES[@]}"; do
@@ -207,7 +156,6 @@ cmd_node() {
     return 1
   fi
 
-  # Use scontrol for accurate AllocMem/RealMemory (sinfo's %e can return N/A)
   local nodelist cpu_alloc cpu_total mem_alloc_mb mem_total_mb
   nodelist=$(sinfo -p "$partition" -h -o "%N" | head -1)
   local first_node
@@ -243,7 +191,6 @@ cmd_node() {
   echo   "  ──────────────────────────────────────────────"
   echo ""
 
-  # All jobs on this partition (all users -- point is to see contention)
   local hdr="  %-12s %-12s %-22s %5s %9s %10s\n"
   local fmt="  %-12i %-12u %-22j %5C %9m %10M\n"
 
@@ -274,8 +221,6 @@ cmd_node() {
 
   echo ""
 }
-
-# --- dispatch ----------------------------------------------------------
 
 cmd="${1-}"
 case "$cmd" in

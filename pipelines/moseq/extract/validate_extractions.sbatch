@@ -1,8 +1,6 @@
 #!/bin/bash
-# Runs validate_extractions_wrapper (moseq2-app) against a project directory.
-# Submitted automatically by submit_moseq.submit_extraction() with
-# --dependency=afterany:<array_job_id> so it runs after all extraction tasks
-# finish (pass or fail) and reports which sessions need attention.
+# Submitted by submit_moseq.submit_extraction() with --dependency=afterany so it runs
+# after all array tasks finish (pass or fail).
 #SBATCH --job-name=moseq-validate-extractions
 #SBATCH --partition=normal
 #SBATCH --time=0:30:00
