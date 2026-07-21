@@ -1,0 +1,74 @@
+# Pipeline manifest, single source of truth for both the CLI and CI. Lives
+# at the repo root (not under cli/) since it's no longer CLI-specific --
+# push-and-publish.yml and build-sif.yml read it too, and any future
+# top-level tooling should be able to find it without reaching into cli/.
+#
+# Read by:
+#   - cli/run and cli/setup.sh (via cli/manifest.sh's purpose-built awk reader,
+#     which only reads the six CLI fields below -- extra CI fields are ignored)
+#   - .github/workflows/push-and-publish.yml and build-sif.yml (via
+#     python3/pyyaml, read all fields)
+#
+# CLI fields (read by manifest.sh):
+#   name              subcommand name (`run <name> ...`). Also used by
+#                     naming convention to find this pipeline's functions
+#                     in cli/pipelines/<module>: cmd_<name>,
+#                     cmd_logs_<name>, cmd_queue_<name> (optional),
+#                     <name>_job_names, <name>_list_entry, <name>_help,
+#                     <name>_stage_usage.
+#   module            filename under cli/pipelines/ defining those functions.
+#   env_setup         path to this pipeline's env_setup.sh, relative to
+#                     the repo root.
+#   required_env_var  an env var this pipeline's env_setup.sh exports,
+#                     checked right after sourcing as a sanity gate.
+#   sif_var           the container image path variable, checked by
+#                     cli/setup.sh.
+#   resources_yaml    path to this pipeline's resources.yaml, relative to
+#                     the repo root. Passed to cli/estimate_resources.py by
+#                     this pipeline's own submit script -- having it here
+#                     means the convention ("resources.yaml lives at
+#                     pipelines/<name>/resources.yaml") is declared once,
+#                     not just assumed by every submitter.
+#
+# CI fields (read by push-and-publish.yml/build-sif.yml, ignored by manifest.sh):
+#   context           Docker build context directory (relative to repo root).
+#   image             Full GHCR image name, e.g. ghcr.io/athp18/caiman.
+#   release_name      Human-readable name used in the GitHub Release title.
+#   build_args        Optional map of static ARG=value pairs passed to
+#                     docker build. The workflow always appends
+#                     BUILD_SHA=<commit> automatically; no need to list it.
+#
+# Adding a new pipeline:
+#   1. mkdir pipelines/<name>, add a Dockerfile, common/env_setup.sh,
+#      resources.yaml, and stage scripts (see pipelines/moseq or
+#      pipelines/miniscope as a template).
+#   2. Add cli/pipelines/<name>.sh implementing cmd_<name>, cmd_logs_<name>,
+#      <name>_job_names, <name>_list_entry, <name>_help, <name>_stage_usage.
+#   3. Add test commands under .github/tests/tests.yaml keyed by <name>.
+#   4. Add one entry below.
+# No workflow edit needed -- CI discovers pipelines from this file via the
+# matrix in push-and-publish.yml/build-sif.yml.
+
+pipelines:
+  - name: miniscope
+    module: miniscope.sh
+    env_setup: pipelines/miniscope/common/env_setup.sh
+    required_env_var: CAIMAN_ROOT_DIR
+    sif_var: SIF
+    resources_yaml: pipelines/miniscope/resources.yaml
+    context: pipelines/miniscope
+    image: ghcr.io/athp18/caiman
+    release_name: caiman-latest
+    build_args:
+      CAIMAN_REF: main
+
+  - name: moseq
+    module: moseq.sh
+    env_setup: pipelines/moseq/common/env_setup.sh
+    required_env_var: MOSEQ_PROJECTS_BASE
+    sif_var: MOSEQ_SIF
+    resources_yaml: pipelines/moseq/resources.yaml
+    context: pipelines/moseq
+    image: ghcr.io/athp18/moseq
+    release_name: moseq-latest
+    build_args: {}

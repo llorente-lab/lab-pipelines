@@ -10,4 +10,6 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 bash -n run
 bash -n setup.sh
-echo "cli: syntax OK (run, setup.sh)"
+bash -n manifest.sh
+python3 -c "import yaml; yaml.safe_load(open('../pipelines.yaml'))"
+echo "cli: syntax OK (run, setup.sh, manifest.sh, pipelines.yaml)"

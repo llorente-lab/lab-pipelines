@@ -1,11 +1,11 @@
 name: Build SIF
 
 # Generic, multi-pipeline .sif builder. Reads the pipeline list straight
-# from cli/pipelines.yaml (same manifest cli/run and cli/setup.sh use, via
-# cli/manifest.sh's purpose-built reader -- not a general YAML parser, see
-# that file's own header) instead of hardcoding one pipeline name, so
-# adding a third/fourth pipeline to the manifest is enough to get it built
-# here too, no workflow edit needed.
+# from pipelines.yaml (repo root; same manifest cli/run and cli/setup.sh
+# use, via cli/manifest.sh's purpose-built reader -- not a general YAML
+# parser, see that file's own header) instead of hardcoding one pipeline
+# name, so adding a third/fourth pipeline to the manifest is enough to get
+# it built here too, no workflow edit needed.
 #
 # Assumes each pipeline's Docker image lives at ghcr.io/athp18/<name>,
 # matching the IMAGE convention in moseq-build.yml/caiman-build.yml --
@@ -45,17 +45,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: List pipelines from cli/pipelines.yaml
+      - name: List pipelines from pipelines.yaml
         id: list
         run: |
           # shellcheck disable=SC1091
           source cli/manifest.sh
           names=()
-          while IFS=: read -r p_name _ _ _ _; do
+          while IFS=: read -r p_name _ _ _ _ _; do
             [ -z "$p_name" ] && continue
             case "$p_name" in \#*) continue ;; esac
             names+=("\"$p_name\"")
-          done < <(load_pipeline_manifest cli/pipelines.yaml)
+          done < <(load_pipeline_manifest pipelines.yaml)
           json="[$(IFS=,; echo "${names[*]}")]"
           echo "pipelines=$json" >> "$GITHUB_OUTPUT"
           echo "discovered pipelines: $json"

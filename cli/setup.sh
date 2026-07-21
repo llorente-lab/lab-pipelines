@@ -16,17 +16,17 @@
 # top-level README's "Adding a new pipeline" / one-time deploy setup
 # sections) that most lab members never need to think about.
 #
-# Manifest-driven, same as cli/run: reads cli/pipelines.yaml (via
+# Manifest-driven, same as cli/run: reads pipelines.yaml (via
 # cli/manifest.sh) and checks/wires up every listed pipeline generically,
 # rather than hardcoding a block per pipeline here. Adding a third pipeline
-# means adding one entry to cli/pipelines.yaml -- this file doesn't need
+# means adding one entry to pipelines.yaml -- this file doesn't need
 # to change.
 
 set -uo pipefail  # deliberately not -e: a failed check should still let
                    # later checks run and report, not abort the whole script
 
 SETUP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST="$SETUP_DIR/pipelines.yaml"
+MANIFEST="$SETUP_DIR/../pipelines.yaml"
 PIPELINES_ROOT="${PIPELINES_ROOT:-${GROUP_HOME:-$HOME}/pipelines}"
 REPO_ROOT="$PIPELINES_ROOT/current"
 BASHRC="$HOME/.bashrc"
@@ -55,7 +55,7 @@ check "\$GROUP_HOME is set" '[ -n "${GROUP_HOME-}" ]'
 check "\$GROUP_HOME/pipelines is readable (illorent group access)" '[ -r "${GROUP_HOME-/nonexistent}/pipelines" ]'
 check "deployed pipeline tree exists (\$PIPELINES_ROOT/current)" '[ -e "$PIPELINES_ROOT/current" ]'
 check "apptainer is on \$PATH" 'command -v apptainer >/dev/null 2>&1'
-check "pipeline manifest exists (cli/pipelines.yaml)" '[ -f "$MANIFEST" ]'
+check "pipeline manifest exists (pipelines.yaml)" '[ -f "$MANIFEST" ]'
 
 if command -v module >/dev/null 2>&1; then ##needed
     module load python/3.9.0
@@ -69,7 +69,7 @@ echo ""
 # --- per-pipeline checks + .bashrc wiring, driven by the manifest ----------
 
 if [ -f "$MANIFEST" ]; then
-  while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var; do
+  while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resources_yaml; do
     [ -z "$p_name" ] && continue
     case "$p_name" in \#*) continue ;; esac
 

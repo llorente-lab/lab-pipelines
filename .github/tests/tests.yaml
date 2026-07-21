@@ -9,7 +9,7 @@
 # single-line shell commands.
 #
 # Adding tests for a new pipeline: add a key matching the pipeline's `name`
-# in cli/pipelines.yaml and list the commands below it.
+# in pipelines.yaml (repo root) and list the commands below it.
 
 tests:
   miniscope:

@@ -3,7 +3,7 @@
 # them, and find their logs, without ever cd-ing into the deployed tree or
 # remembering sbatch argument order/paths.
 #
-# Manifest-driven: cli/pipelines.yaml lists each pipeline (name, its
+# Manifest-driven: pipelines.yaml (repo root) lists each pipeline (name, its
 # cli/pipelines/<name>.sh module, its env_setup.sh, the env var to sanity-
 # check after sourcing it). This file itself stays generic -- it sources
 # every pipeline's module and env_setup.sh, then dispatches by name.
@@ -11,7 +11,7 @@
 # cmd_queue_<name>, plus <name>_job_names/<name>_list_entry/<name>_help for
 # `run status`/`run list`/`run --help`) lives in cli/pipelines/<name>.sh,
 # found purely by naming convention -- no registration step beyond the one
-# entry in cli/pipelines.yaml. Adding a third pipeline means adding one
+# entry in pipelines.yaml. Adding a third pipeline means adding one
 # entry there and one new file, not touching this one.
 #
 # This file (and everything it sources) is deployed through the same
@@ -24,7 +24,7 @@ set -euo pipefail
 CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPELINES_DIR="$CLI_DIR/pipelines"
 REPO_ROOT="$(cd "$CLI_DIR/.." && pwd)"
-MANIFEST="$CLI_DIR/pipelines.yaml"
+MANIFEST="$REPO_ROOT/pipelines.yaml"
 
 if [ ! -f "$MANIFEST" ]; then
   echo "run: pipeline manifest not found at $MANIFEST -- deploy is broken" >&2
@@ -51,7 +51,7 @@ source "$CLI_DIR/resources.sh"
 PIPELINE_NAMES=()
 declare -A PIPELINE_ENV_VAR
 
-while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var; do
+while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resources_yaml; do
   [ -z "$p_name" ] && continue
   case "$p_name" in \#*) continue ;; esac
 

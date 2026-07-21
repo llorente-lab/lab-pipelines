@@ -3,8 +3,8 @@ name: push-and-publish
 # Single workflow that drives every pipeline end-to-end:
 #   discover → build-and-test (every push) → tag-push-publish (main only)
 #
-# The pipeline matrix is read from cli/pipelines.yaml so adding a new pipeline
-# only requires an entry there -- no workflow edit needed.
+# The pipeline matrix is read from pipelines.yaml (repo root) so adding a
+# new pipeline only requires an entry there -- no workflow edit needed.
 # Test commands are read from .github/tests/tests.yaml at build time.
 
 on:
@@ -19,7 +19,7 @@ on:
 
 jobs:
   # ── 1. Discover ─────────────────────────────────────────────────────────────
-  # Reads cli/pipelines.yaml and emits a JSON matrix of pipeline objects so
+  # Reads pipelines.yaml and emits a JSON matrix of pipeline objects so
   # build-and-test doesn't need to know about individual pipelines at all.
   discover:
     runs-on: ubuntu-24.04
@@ -34,7 +34,7 @@ jobs:
         run: |
           pipelines=$(python3 - << 'EOF'
           import yaml, json, sys
-          with open("cli/pipelines.yaml") as f:
+          with open("pipelines.yaml") as f:
               data = yaml.safe_load(f)
           result = []
           for p in data["pipelines"]:

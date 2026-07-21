@@ -2,19 +2,30 @@
 
 Monorepo for the lab's Sherlock-based analysis pipelines. One repo, one
 deploy mechanism, shared low-level conventions -- each pipeline is a
-top-level directory.
+directory under `pipelines/`, discovered generically (by both the CLI and
+CI) via `pipelines.yaml` at the repo root.
 
 ```
 lab-pipelines/
+  pipelines.yaml          # single manifest: CLI wiring + CI build config, per pipeline
   deploy/
     poll_and_deploy.sh    # cron-invoked GitOps-style deploy agent, generic
   cli/
     run                    # the one command lab members need, see below
     setup.sh                # one-time (rerunnable) shell bootstrap
-  common/                 # code shared by 2+ pipelines (empty until MoSeq needs it)
-  miniscope/               # CaImAn-based Miniscope calcium imaging pipeline
-  moseq/                    # placeholder, not started
+    manifest.sh             # reads pipelines.yaml
+    pipelines/<name>.sh     # per-pipeline CLI functions (naming-convention based)
+  common/                 # code shared by 2+ pipelines (job_init, monitor_resources, apptainer wrappers)
+  pipelines/
+    miniscope/             # CaImAn-based Miniscope calcium imaging pipeline
+    moseq/                 # Datta-lab moseq2 motion-sequencing pipeline
 ```
+
+Adding a third pipeline means adding a `pipelines/<name>/` directory plus
+one entry in `pipelines.yaml` -- see that file's header comment for the
+full checklist. No workflow, CLI dispatcher, or deploy-check edit is
+needed; both `cli/run` and the CI workflows discover pipelines from the
+manifest.
 
 ## Deployment model
 
@@ -121,26 +132,40 @@ run status
 run logs miniscope motion-correction --mouse VK_20250101_a --date 2025-01-01 --tp tp1
 ```
 
-See `cli/README.md` for the full command reference and why `run` is
-Miniscope-specific for now rather than a generic multi-pipeline dispatcher.
-Nothing here is hidden or gatekept -- `run` is a thin wrapper around the
-same `.sbatch` files anyone can still call directly if they want to see
-exactly what's happening underneath.
+See `cli/README.md` for the full command reference. `run` is a generic,
+manifest-driven dispatcher -- it discovers every pipeline listed in
+`pipelines.yaml` and finds each one's functions by naming convention, no
+per-pipeline code inside `cli/run` itself. Nothing here is hidden or
+gatekept -- `run` is a thin wrapper around the same `.sbatch` files anyone
+can still call directly if they want to see exactly what's happening
+underneath.
 
 ## Adding a new pipeline
 
-1. New top-level directory, e.g. `moseq/`.
-2. Its own `common/`, stage scripts, `.sbatch` files -- whatever shape fits
-   that pipeline, doesn't need to mirror Miniscope's internal layout exactly.
-3. A `deploy_check.sh` at the top of the directory if you want the deploy
-   agent to gate on it (fast, dependency-light checks only -- it runs on the
-   login node on every deploy, not inside the container).
-4. Only reach into `common/` for something already duplicated between two
-   real pipelines, not preemptively.
-5. Add its stages to `cli/run` by hand (a new `cmd_moseq()`-style case,
-   following `cmd_miniscope()`). This is a deliberately manual step right
-   now, not config -- see `cli/README.md` for why `run` isn't a generic
-   manifest-driven dispatcher yet, and what would justify making it one.
+1. `mkdir pipelines/<name>` with a `Dockerfile`, `common/env_setup.sh`
+   (source `common/job_template.sh` and `common/apptainer_helpers.sh` from
+   the repo root rather than hand-rolling that boilerplate), `resources.yaml`
+   (same schema as `pipelines/moseq/resources.yaml`), and stage `.sbatch`
+   scripts -- whatever internal shape fits that pipeline, doesn't need to
+   mirror Miniscope's layout exactly.
+2. Optionally a `deploy_check.sh` at the top of `pipelines/<name>/` if you
+   want the deploy agent to gate on it (fast, dependency-light checks only --
+   it runs on the login node on every deploy, not inside the container).
+   `deploy/poll_and_deploy.sh` looks for this automatically under
+   `pipelines/*/`, no edit needed there.
+3. Only reach into `common/` for something already duplicated between two
+   real pipelines, not preemptively -- see `common/README.md`.
+4. Add `cli/pipelines/<name>.sh` implementing the naming-convention
+   functions (`cmd_<name>`, `cmd_logs_<name>`, `<name>_job_names`,
+   `<name>_list_entry`, `<name>_help`, `<name>_stage_usage`) -- `cli/run`
+   finds it automatically once it's listed in `pipelines.yaml`, no edit to
+   `cli/run` itself needed.
+5. Add a `<name>:` key to `.github/tests/tests.yaml` with the smoke-test
+   commands CI should run inside the built image.
+6. Add one entry to `pipelines.yaml` (repo root) -- see its header comment
+   for the exact fields. This is the only registration step; both the CLI
+   and every CI workflow (`push-and-publish.yml`, `build-sif.yml`) discover
+   pipelines from this file, so nothing else needs to change.
 
 ## Why a monorepo
 

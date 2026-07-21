@@ -24,7 +24,8 @@
 #
 # Per-pipeline sanity checks: after checking out a new commit, this script
 # looks for a `deploy_check.sh` at the top of each pipeline directory in the
-# new release (e.g. miniscope/deploy_check.sh) and runs it. If a pipeline
+# new release (both repo-root-level dirs like cli/, and pipelines/*/ dirs
+# like pipelines/miniscope/deploy_check.sh) and runs it. If a pipeline
 # doesn't have one, it's skipped, not failed. The `current` symlink only
 # advances if every check that exists passes -- a bad commit just never gets
 # promoted, and the next poll will pick up the fix once it's pushed.
@@ -145,7 +146,14 @@ fi
 # --- per-pipeline sanity checks -------------------------------------------
 
 CHECK_FAILURES=0
-for pipeline_dir in "$NEW_RELEASE"/*/; do
+# Checked at two levels: repo-root-level dirs (cli/, common/, ...) AND
+# pipelines/*/ subdirs (pipelines/moseq/, pipelines/miniscope/, ...) --
+# actual pipelines live one level deeper than they used to (under
+# pipelines/), while cli/'s own deploy_check.sh is still a direct
+# repo-root child. A dir with no deploy_check.sh (e.g. common/, or
+# pipelines/ itself) is simply skipped.
+for pipeline_dir in "$NEW_RELEASE"/*/ "$NEW_RELEASE"/pipelines/*/; do
+  [ -d "$pipeline_dir" ] || continue
   pipeline_name="$(basename "$pipeline_dir")"
   check_script="$pipeline_dir/deploy_check.sh"
   if [ -f "$check_script" ]; then

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Moseq pipeline wiring for `run` (see cli/run, cli/pipelines.yaml).
+# Moseq pipeline wiring for `run` (see cli/run, pipelines.yaml).
 # Sourced by cli/run, not executed directly -- defines cmd_moseq,
 # cmd_logs_moseq, moseq_job_names, moseq_list_entry, moseq_help (no
 # cmd_queue_moseq: the dry-run status check lives at
@@ -93,7 +93,7 @@ cmd_moseq() {
   fi
 
   if [ -z "${MOSEQ_PROJECTS_BASE-}" ]; then
-    echo "run moseq: environment not set up -- have you sourced moseq/common/env_setup.sh? (see cli/setup.sh)" >&2
+    echo "run moseq: environment not set up -- have you sourced pipelines/moseq/common/env_setup.sh? (see cli/setup.sh)" >&2
     exit 1
   fi
   case "$stage" in
@@ -462,7 +462,7 @@ moseq_help() {
 
 `run moseq init <name> [--source <gdrive_path>]` creates
 $MOSEQ_PROJECTS_BASE/<name> (canonical home for every lab member's Moseq
-projects, see moseq/common/env_setup.sh) and records name/Sherlock path in
+projects, see pipelines/moseq/common/env_setup.sh) and records name/Sherlock path in
 $MOSEQ_PROJECTS_BASE/<name>/project_meta.yaml. It does NOT pull anything
 from Drive, even if --source is given -- init always only creates the
 empty project shell. Passing --source here just RECORDS the Drive path for
