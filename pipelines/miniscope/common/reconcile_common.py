@@ -3,10 +3,54 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import subprocess
+import time
 from pathlib import Path
+
+# Short-lived disk cache for `rclone lsf -R` results. Reconciliation runs two
+# separate scripts (reconcile_motion_correction.py, reconcile_cnmfe.py) that
+# each independently re-scan almost the same Drive trees (AnalyzedData + its
+# archival subdirs, RawData, excluding_for_analysis) -- that's roughly a
+# dozen full recursive Drive listings for one `run queue miniscope` call,
+# all live network round-trips, most of them redundant within the same
+# invocation. Caching by remote path (with a short TTL, not indefinite --
+# Drive state does change) turns the second+ scan of the same path into a
+# local file read instead of another live Drive traversal.
+_CACHE_DIR = Path(
+    os.environ.get("MINISCOPE_RECONCILE_CACHE_DIR")
+    or f"{os.environ.get('SCRATCH', '/tmp')}/Miniscope/.reconcile_cache"
+)
+_CACHE_TTL_S = int(os.environ.get("MINISCOPE_RECONCILE_CACHE_TTL_S", "300"))
+
+
+def _cache_key(*parts: str) -> Path:
+    digest = hashlib.sha1("|".join(parts).encode()).hexdigest()
+    return _CACHE_DIR / f"{digest}.json"
+
+
+def _cached(key_parts: tuple[str, ...], compute):
+    """Return compute()'s result, cached under key_parts for _CACHE_TTL_S seconds.
+    Any cache read/write failure (missing dir, race, corrupt file) falls back
+    to just calling compute() -- caching is a speed optimization, never a
+    correctness requirement, so it must never be the thing that breaks
+    reconciliation if $SCRATCH is unwritable or the cache file is bad."""
+    path = _cache_key(*key_parts)
+    try:
+        if path.exists() and (time.time() - path.stat().st_mtime) < _CACHE_TTL_S:
+            return json.loads(path.read_text())
+    except Exception:
+        pass
+    result = compute()
+    try:
+        _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(result))
+    except Exception:
+        pass
+    return result
 
 # RawData on Drive also contains non-session dirs (repo clones, stray folders) at the same depth,
 # so we filter by mouse name pattern rather than relying on directory depth alone.
@@ -58,8 +102,7 @@ def get_scratch_analyzed_base() -> str:
     return f"{scratch}/Miniscope/AnalyzedData"
 
 
-def rclone_list_files(remote_path: str) -> list[str]:
-    """Return all file paths under remote_path recursively, relative to remote_path."""
+def _rclone_list_files_uncached(remote_path: str) -> list[str]:
     result = subprocess.run(
         ["rclone", "lsf", "-R", "--files-only", remote_path],
         capture_output=True, text=True,
@@ -69,8 +112,14 @@ def rclone_list_files(remote_path: str) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def rclone_list_dirs(remote_path: str, max_depth: int | None = None) -> list[str]:
-    """Return all directory paths under remote_path, relative to remote_path."""
+def rclone_list_files(remote_path: str) -> list[str]:
+    """Return all file paths under remote_path recursively, relative to remote_path.
+    Cached (see _cached above) since multiple reconcile scripts/calls scan the
+    same remote paths within one `run queue`/`run miniscope dashboard` invocation."""
+    return _cached(("files", remote_path), lambda: _rclone_list_files_uncached(remote_path))
+
+
+def _rclone_list_dirs_uncached(remote_path: str, max_depth: int | None) -> list[str]:
     cmd = ["rclone", "lsf", "-R", "--dirs-only", remote_path]
     if max_depth is not None:
         cmd.insert(2, f"--max-depth={max_depth}")
@@ -78,6 +127,14 @@ def rclone_list_dirs(remote_path: str, max_depth: int | None = None) -> list[str
     if result.returncode != 0:
         return []
     return [line.strip().rstrip("/") for line in result.stdout.splitlines() if line.strip()]
+
+
+def rclone_list_dirs(remote_path: str, max_depth: int | None = None) -> list[str]:
+    """Return all directory paths under remote_path, relative to remote_path. Cached, see rclone_list_files."""
+    return _cached(
+        ("dirs", remote_path, str(max_depth)),
+        lambda: _rclone_list_dirs_uncached(remote_path, max_depth),
+    )
 
 
 def discover_raw_sessions() -> list[tuple[str, str, str]]:
