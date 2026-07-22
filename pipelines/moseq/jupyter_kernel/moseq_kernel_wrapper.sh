@@ -8,16 +8,25 @@
 # Jupyter server to babysit -- just standard kernel discovery via
 # JUPYTER_PATH (see ../common/env_setup.sh).
 #
-# MOSEQ_SIF must be set in the environment this script runs in. It's
-# exported by env_setup.sh, and Jupyter kernels normally inherit the
-# server process's environment, so as long as the OnDemand session's shell
-# sourced env_setup.sh (via ~/.bashrc) before the server started, this
-# picks it up with no extra config. If MOSEQ_SIF ever comes back empty here,
-# that's the thing to check first -- see README.md in this directory.
+# MOSEQ_SIF is normally exported by env_setup.sh, and Jupyter kernels
+# inherit the server process's environment, so if the OnDemand session's
+# shell sourced env_setup.sh before the server started, this picks it up
+# with no extra config. But requiring every user to source env_setup.sh
+# themselves is exactly what stood between "works for one person who set
+# it up" and "registered for everyone" -- so this also falls back to the
+# same default env_setup.sh itself uses (see common/env_setup.sh's
+# MOSEQ_SIF_OVERRIDE/GROUP_SCRATCH line) if MOSEQ_SIF was never set at
+# all. GROUP_SCRATCH is a standard Sherlock-provided env var, not
+# something env_setup.sh invents, so this fallback works even for a user
+# who has done zero lab-specific setup.
 set -euo pipefail
 
-if [ -z "${MOSEQ_SIF-}" ]; then
-  echo "moseq_kernel_wrapper.sh: MOSEQ_SIF is not set -- has env_setup.sh been sourced?" >&2
+MOSEQ_SIF="${MOSEQ_SIF:-${GROUP_SCRATCH:-/scratch/groups/illorent}/containers/moseq/moseq.sif}"
+
+if [ ! -f "$MOSEQ_SIF" ]; then
+  echo "moseq_kernel_wrapper.sh: no container image at MOSEQ_SIF=$MOSEQ_SIF" >&2
+  echo "  (falls back to \$GROUP_SCRATCH/containers/moseq/moseq.sif if MOSEQ_SIF isn't set --" >&2
+  echo "  see README.md in this directory if that's wrong for your account)" >&2
   exit 1
 fi
 

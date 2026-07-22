@@ -51,6 +51,18 @@ jupyter nbextension install --sys-prefix --symlink --py jupyter_bokeh
 jupyter nbextension enable  jupyter_bokeh --py --sys-prefix
 
 echo
+echo "Registering the MoSeq2 (Apptainer) kernel into this venv's own prefix ..."
+# Installing into --prefix="$ENV_DIR" (not --user, not --system, which
+# Sherlock users can't write to anyway) means the kernel shows up for
+# ANYONE who activates this venv -- Jupyter always checks
+# sys.prefix/share/jupyter/kernels for whichever environment it's running
+# in, so this needs no JUPYTER_PATH, no env_setup.sh, nothing beyond the
+# one activate line every OnDemand user already sets. This is what makes
+# the kernel "registered for everyone" instead of opt-in per user.
+KERNEL_SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/kernels/moseq2-apptainer" && pwd)"
+jupyter kernelspec install --prefix="$ENV_DIR" "$KERNEL_SRC_DIR" --name moseq2-apptainer
+
+echo
 echo "Checking for dependency conflicts ..."
 pip check || echo "WARNING: pip check reported conflicts above -- review before relying on this env."
 
