@@ -98,6 +98,7 @@ Other commands:
   run queue <pipeline> ...
   run list
   run node [partition]        show live CPU/memory usage and jobs on illorent (or any partition)
+  run pipeline-new <name>     scaffold a new pipeline from pipelines/_template into pipelines/<name>
 
 `run sync` is a thin, unopinionated wrapper around `rclone copy` -- no
 default excludes, no baked-in direction, just whichever two paths you give
@@ -173,7 +174,85 @@ cmd_list() {
     "${name}_list_entry"
     echo ""
   done
-  echo "other commands: status, logs, sync, queue, list, node -- run 'run --help' for details"
+  echo "other commands: status, logs, sync, queue, list, node, pipeline-new -- run 'run --help' for details"
+}
+
+cmd_pipeline_new() {
+  local name="${1-}"
+  case "$name" in
+    "")
+      echo "run pipeline-new: usage: run pipeline-new <name>" >&2
+      exit 1
+      ;;
+    *[!A-Za-z0-9_-]*)
+      echo "run pipeline-new: invalid name '$name' -- use only letters, digits, underscore, hyphen" >&2
+      exit 1
+      ;;
+  esac
+
+  local template_dir="$REPO_ROOT/pipelines/_template"
+  local dest_dir="$REPO_ROOT/pipelines/$name"
+  local cli_module_dest="$PIPELINES_DIR/$name.sh"
+
+  if [ ! -d "$template_dir" ]; then
+    echo "run pipeline-new: template not found at $template_dir -- is the repo deployed correctly?" >&2
+    exit 1
+  fi
+  if [ -e "$dest_dir" ]; then
+    echo "run pipeline-new: $dest_dir already exists -- pick a different name or remove it first" >&2
+    exit 1
+  fi
+  if [ -e "$cli_module_dest" ]; then
+    echo "run pipeline-new: $cli_module_dest already exists -- pick a different name or remove it first" >&2
+    exit 1
+  fi
+
+  local name_upper name_title
+  name_upper="$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
+  name_title="$(echo "${name:0:1}" | tr '[:lower:]' '[:upper:]')${name:1}"
+
+  # Copy everything except the template's own README -- that's instructions
+  # for using the template, not documentation for the new pipeline.
+  mkdir -p "$dest_dir"
+  local f rel out
+  while IFS= read -r -d '' f; do
+    rel="${f#"$template_dir"/}"
+    out="$dest_dir/$rel"
+    mkdir -p "$(dirname "$out")"
+    cp "$f" "$out"
+  done < <(find "$template_dir" -type f ! -name README.md -print0)
+
+  # deploy_check.sh.example -> deploy_check.sh: safe now, since this is a
+  # real pipeline directory, not the inert template (see that file's own
+  # header comment for why the template keeps it as .example).
+  if [ -f "$dest_dir/deploy_check.sh.example" ]; then
+    mv "$dest_dir/deploy_check.sh.example" "$dest_dir/deploy_check.sh"
+  fi
+
+  cp "$PIPELINES_DIR/_template.sh" "$cli_module_dest"
+
+  # Placeholder substitution: TEMPLATE_* env vars/names -> <NAME_UPPER>_*,
+  # template -> <name> (function names, paths, comments), <name> -> <name>
+  # (the literal placeholder token used in a few comments/usage strings).
+  while IFS= read -r -d '' f; do
+    sed -i \
+      -e "s/TEMPLATE/${name_upper}/g" \
+      -e "s/Template/${name_title}/g" \
+      -e "s/template/${name}/g" \
+      -e "s/<name>/${name}/g" \
+      "$f"
+  done < <(find "$dest_dir" "$cli_module_dest" -type f -print0)
+
+  echo "run pipeline-new: created pipelines/$name/ and cli/pipelines/$name.sh"
+  echo ""
+  echo "Next steps:"
+  echo "  1. Fill in pipelines/$name/Dockerfile, common/env_setup.sh, and resources.yaml,"
+  echo "     and replace example_stage/ with your real stage script(s)."
+  echo "  2. Implement cli/pipelines/$name.sh for real (it currently just mirrors"
+  echo "     the template's single example-stage/dashboard commands)."
+  echo "  3. Add test commands for '$name' alongside the existing pipelines' tests."
+  echo "  4. Add one entry for '$name' to the repo root's pipelines.yaml."
+  echo "     Nothing else needs editing -- CI/deploy discover everything from that entry."
 }
 
 cmd_node() {
@@ -259,6 +338,7 @@ case "$cmd" in
   queue)        shift; cmd_queue "$@" ;;
   list)         shift; cmd_list "$@" ;;
   node)         shift; cmd_node "$@" ;;
+  pipeline-new) shift; cmd_pipeline_new "$@" ;;
   -h|--help|"") usage ;;
   *)
     for name in "${PIPELINE_NAMES[@]}"; do

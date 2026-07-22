@@ -1,0 +1,31 @@
+#!/bin/bash
+# Sanity check run by deploy/poll_and_deploy.sh before promoting a new commit
+# to `current`. Same fast, dependency-light philosophy as
+# moseq/deploy_check.sh and miniscope/deploy_check.sh -- no Apptainer, no
+# Sherlock resources, just syntax/shape checks that catch typos before they
+# reach `current`.
+#
+# IMPORTANT: this file is named deploy_check.sh.example in the template
+# specifically so it's inert. poll_and_deploy.sh scans every directory under
+# pipelines/*/ for a file literally named `deploy_check.sh` and runs it --
+# that scan is NOT gated by pipelines.yaml, so if this were named
+# deploy_check.sh here, it would run (and likely fail, since it's a
+# skeleton) on every real deploy, for every user of this repo, forever.
+# Rename this to deploy_check.sh only inside your real pipelines/<name>/
+# directory, never here.
+
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
+bash -n common/env_setup.sh
+bash -n example_stage/example_stage.sbatch
+
+python3 -c "import yaml; yaml.safe_load(open('resources.yaml'))"
+
+# Add one `bash -n <script>` per real stage script you add, and a fast,
+# script for any pure-Python logic (submission code, reconciliation
+# logic, etc.) -- see pipelines/moseq/deploy_check.sh for the pattern of
+# separating "fast, checked here" from "needs the container,
+# deliberately excluded from this fast gate."
+
+echo "<name>: syntax OK"

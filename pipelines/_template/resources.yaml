@@ -1,0 +1,33 @@
+# Resource registry for the <name> pipeline.
+# Read generically by cli/estimate_resources.py at submit time -- nothing
+# pipeline-specific about how this file gets turned into sbatch flags, so
+# you only need to fill in real values below, not write any new code.
+#
+# Fields per stage:
+#   partition   which Slurm partition this stage's jobs target.
+#   exclusive   if true, jobs always request the whole node (see
+#               `--exclusive` handling in estimate_resources.py) --
+#               usually false; only set true for stages that always need
+#               a whole node's worth of resources.
+#   cores/mem_gb:
+#     formula   a Python expression evaluated with your stage's metadata
+#               dict in scope (e.g. `n_sessions * 50`), or `null` to always
+#               use fallback (e.g. before you've calibrated a real formula).
+#     min/max   clamps applied after the formula (or to fallback, if no
+#               formula) -- min defaults to 1 if omitted, max is optional.
+#     fallback  used when formula is null, or when it fails to evaluate.
+
+stages:
+  example-stage:
+    partition: normal
+    exclusive: false
+    cores:
+      formula: null
+      min: 1
+      max: 32
+      fallback: 4
+    mem_gb:
+      formula: null
+      min: 1
+      max: 64
+      fallback: 8
