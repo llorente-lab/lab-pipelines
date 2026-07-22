@@ -1,6 +1,6 @@
 {
   "argv": [
-    "/home/groups/illorent/pipelines/current/moseq/jupyter_kernel/moseq_kernel_wrapper.sh",
+    "/home/groups/illorent/pipelines/current/pipelines/moseq/jupyter_kernel/moseq_kernel_wrapper.sh",
     "-f",
     "{connection_file}"
   ],

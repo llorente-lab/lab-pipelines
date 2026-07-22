@@ -21,9 +21,6 @@ if [ -z "${MOSEQ_SIF-}" ]; then
   exit 1
 fi
 
-# numexpr (a moseq2-extract dependency) defaults its NUMEXPR_MAX_THREADS
-# cap to 64 and errors ("nthreads cannot be larger than...") if it detects
-# more cores available than that
 exec apptainer exec \
   --bind "${SCRATCH:-/tmp},${GROUP_SCRATCH:-/tmp},${GROUP_HOME:-/tmp}" \
   --env "RCLONE_CONFIG=${RCLONE_CONFIG:-}" \
