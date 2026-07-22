@@ -23,7 +23,13 @@ from reconcile_common import (
 )
 
 
-def find_sessions_needing_mc(verbose: bool = False) -> list[tuple[str, str, str]]:
+def find_sessions_needing_mc(verbose=False):
+    """
+    verbose (bool): print per-session status while scanning.
+
+    Returns a list of (mouse, date, tp) tuples (all str) for sessions
+    still needing motion correction.
+    """
     correlation_dirs = collect_marker_dirs(ANALYZED_DONE_PATHS, is_correlation_image)
     model_dirs = collect_marker_dirs(ANALYZED_DONE_PATHS, is_cnmfe_model)
 

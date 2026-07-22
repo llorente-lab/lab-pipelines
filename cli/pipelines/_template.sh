@@ -1,15 +1,11 @@
 #!/bin/bash
-# Reference cli/pipelines/<name>.sh -- lives here (not under
-# pipelines/_template/) because this is where `run` actually expects a
-# pipeline's dispatch module to live. Not referenced by pipelines.yaml, so
-# `run` never sources this file -- fully inert until you copy it.
+# Reference cli/pipelines/<name>.sh. Lives here, not under
+# pipelines/_template/, since this is where `run` expects a pipeline's
+# dispatch module to live. Not in pipelines.yaml, so `run` never sources
+# it -- inert until you copy it (run pipeline-new <name> does this for you).
 #
-# To use: copy this file to cli/pipelines/<name>.sh and replace every
-# "template"/"TEMPLATE" with your pipeline's real name (matching whatever
-# "name"/"module" you put in the repo root's pipelines.yaml).
-#
-# The six functions below are the entire contract `run` needs from a
-# pipeline module -- see cli/run for exactly how/when each is called.
+# The six functions below are the whole contract `run` needs -- see cli/run
+# for how/when each gets called.
 
 cmd_template() {
   local stage="${1-}"; shift || true
@@ -23,9 +19,8 @@ cmd_template() {
     return $?
   fi
 
-  # cli/run already checked $TEMPLATE_PROJECTS_BASE (or whatever
-  # required_env_var you declared in pipelines.yaml) is set before calling
-  # this function at all -- see require_pipeline_env in cli/run.
+  # cli/run already checked $TEMPLATE_PROJECTS_BASE is set before calling
+  # this at all (see require_pipeline_env in cli/run).
 
   local exclusive="" cores="" mem="" walltime=""
   while [ $# -gt 0 ]; do
@@ -63,9 +58,7 @@ cmd_template() {
   esac
 }
 
-# Stage names must match the log-file prefix your .sbatch script's
-# job_init/start_resource_monitor calls use -- keep hyphens/underscores
-# consistent with what you picked in resources.yaml and the .sbatch itself.
+# Stage names here must match the log-file prefix your .sbatch script uses.
 cmd_logs_template() {
   local stage="${1-}"; shift || true
   local name="${1-}"; shift || true
@@ -118,9 +111,8 @@ template_help() {
   run template dashboard <name>
   run logs template <stage> <name>
 
-Replace this whole help block with real documentation for your pipeline's
-actual stages once you've filled them in -- see cli/pipelines/moseq.sh or
-cli/pipelines/miniscope.sh for the level of detail worth aiming for
-(what each flag does, what's chained vs. manual, common gotchas).
+Replace this with real docs for your pipeline's stages -- see
+cli/pipelines/moseq.sh or cli/pipelines/miniscope.sh for the level of
+detail worth aiming for.
 EOF
 }

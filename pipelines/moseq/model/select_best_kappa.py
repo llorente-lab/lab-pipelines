@@ -5,8 +5,6 @@ Usage:
     apptainer_python select_best_kappa.py <project_root> [--objective ...] [--fps 30]
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 from pathlib import Path
@@ -16,7 +14,14 @@ from moseq2_viz.helpers.wrappers import get_best_fit_model_wrapper
 DEFAULT_OBJECTIVE = "median_loglikelihood"
 
 
-def select_best_kappa(project_root: str, objective: str = DEFAULT_OBJECTIVE, fps: int = 30) -> dict:
+def select_best_kappa(project_root, objective=DEFAULT_OBJECTIVE, fps=30):
+    """
+    project_root (str): project's root directory.
+    objective (str): scoring metric used to pick the best model.
+    fps (int): frames per second of the recordings, used by the fit scorer.
+
+    Returns a dict describing the selected model.
+    """
     project_root_path = Path(project_root).resolve()
     model_dir = project_root_path / "models"
     cp_file = project_root_path / "_pca" / "changepoints.h5"

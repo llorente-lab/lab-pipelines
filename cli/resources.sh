@@ -19,8 +19,8 @@ _force_exclusive() {
   _RF_EXCLUSIVE="1"
 }
 
-# If the estimator or registry is missing, RESOURCE_FLAGS is left empty and callers
-# fall back to the .sbatch file's own #SBATCH defaults.
+# No estimator/registry found -> RESOURCE_FLAGS stays empty, callers fall
+# back to the .sbatch file's own #SBATCH defaults.
 _apply_resource_overrides() {
   local cores="$1" mem_gb="$2" time="$3"
   RESOURCE_FLAGS=()
@@ -43,11 +43,10 @@ _apply_resource_overrides() {
   )
 }
 
-# Wraps `sbatch --parsable` so bash-submitting pipelines (miniscope) get the
-# same job-ID tracking moseq's Python _sbatch() has. Prints "Submitted batch
-# job <id>" (matching plain `sbatch`'s own message, since --parsable's raw
-# output replaces it) and, if job_log_dir is non-empty, appends a record to
-# <job_log_dir>/jobs.jsonl -- read by common/dashboard.py.
+# Wraps `sbatch --parsable` so bash pipelines (miniscope) get the same
+# job-ID tracking moseq's Python _sbatch() has: prints the usual "Submitted
+# batch job <id>" line and, if job_log_dir is given, logs it to
+# <job_log_dir>/jobs.jsonl for common/dashboard.py.
 #
 # Usage: _sbatch_submit <job_log_dir|""> <stage> [sbatch args...]
 _sbatch_submit() {

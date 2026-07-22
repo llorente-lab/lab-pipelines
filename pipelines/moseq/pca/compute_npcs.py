@@ -5,11 +5,10 @@ Usage:
     apptainer_python compute_npcs.py <project_root> [--threshold 90]
 """
 
-from __future__ import annotations
-
 import argparse
 import sys
 from pathlib import Path
+import ruamel.yaml as yaml
 
 import numpy as np
 
@@ -18,18 +17,35 @@ import numpy as np
 # on a bare host with just numpy.
 
 
-def npcs_for_variance(explained_variance_ratio, threshold: float = 90.0) -> int:
-    """Return smallest n such that the first n PCs explain >= threshold% cumulative variance."""
+def npcs_for_variance(explained_variance_ratio, threshold=90.0):
+    """
+    Smallest n such that the first n PCs explain >= threshold% cumulative
+    variance.
+
+    explained_variance_ratio (array-like of float): per-PC explained
+        variance ratio, as stored in pca.h5.
+    threshold (float): target cumulative explained variance percentage.
+
+    Returns an int, the number of PCs needed.
+    """
     explained_variance_ratio = np.asarray(explained_variance_ratio)
     cumulative_pct = np.cumsum(explained_variance_ratio) * 100
-    hits = np.where(cumulative_pct >= threshold)[0]
-    if len(hits) == 0:
+    idxs = np.where(cumulative_pct >= threshold)[0]
+    if len(idxs) == 0:
         return len(explained_variance_ratio)
-    return int(hits[0]) + 1  # index 0 == first PC alone, so +1 converts to count
+    return int(idxs[0]) + 1  # index 0 == first PC alone, so +1 converts to count
 
 
-def compute_npcs(pca_h5_path: str, threshold: float = 90.0) -> int:
-    """Read explained_variance_ratio from pca.h5 and delegate to npcs_for_variance()."""
+def compute_npcs(pca_h5_path, threshold=90.0):
+    """
+    Read explained_variance_ratio from pca.h5 and delegate to
+    npcs_for_variance().
+
+    pca_h5_path (str): path to the pca.h5 file.
+    threshold (float): target cumulative explained variance percentage.
+
+    Returns an int, the number of PCs needed.
+    """
     import h5py
 
     with h5py.File(pca_h5_path, "r") as f:
@@ -37,9 +53,14 @@ def compute_npcs(pca_h5_path: str, threshold: float = 90.0) -> int:
     return npcs_for_variance(explained_variance_ratio, threshold)
 
 
-def update_config_npcs(config_path: str, npcs: int) -> None:
-    """Write npcs into config.yaml using ruamel.yaml round-trip mode to preserve formatting."""
-    import ruamel.yaml as yaml
+def update_config_npcs(config_path, npcs):
+    """
+    Write npcs into config.yaml using ruamel.yaml round-trip mode to
+    preserve formatting.
+
+    config_path (str): path to the project's config.yaml.
+    npcs (int): number of PCs to write into the config.
+    """
 
     y = yaml.YAML()
     y.preserve_quotes = True

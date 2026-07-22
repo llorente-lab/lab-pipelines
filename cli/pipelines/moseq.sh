@@ -175,12 +175,9 @@ cmd_moseq() {
       fi
       ;;
     jupyter-info)
-      # Info only -- OnDemand sessions are launched through Sherlock's web
-      # portal (Batch Connect), not something a CLI can submit on its
-      # behalf. This just saves hunting through
-      # pipelines/moseq/jupyter_kernel/README.md for the exact values.
-      # Keep in sync with that README's "Setting up a new OnDemand session"
-      # section -- it's the source of truth if these ever change.
+      # Info only -- OnDemand sessions launch through Sherlock's web portal,
+      # not something a CLI can submit. Keep in sync with
+      # pipelines/moseq/jupyter_kernel/README.md, which is the source of truth.
       cat <<'EOF'
 To run Moseq notebooks via Sherlock OnDemand:
 
@@ -216,14 +213,31 @@ EOF
         echo "  extract_array.sbatch); 'run moseq full-pipeline --exclusive' reserves illorent for" >&2
         echo "  the other stages in the chain instead." >&2
       fi
-      moseq_python -c "
+      config_file="$project_dir/config.yaml"
+      # Check first, cheaply (host-only, no container), whether there's
+      # anything to do at all -- only generate config.yaml if so, since
+      # generating it is a real container call.
+      needs_extraction="$(moseq_python -c "
+from reconcile_moseq import sessions_needing_extraction
+print('1' if sessions_needing_extraction('$project_dir') else '')
+")"
+      if [ -z "$needs_extraction" ]; then
+        echo "nothing to extract -- every session is already extracted (see run moseq check-progress $name)"
+      else
+        # Generate config.yaml here, before any array task starts, not
+        # inside extract_array.sbatch -- every array task races to the
+        # same file, so a "generate if missing" check inside the task
+        # itself is a race.
+        if [ ! -f "$config_file" ]; then
+          echo "run moseq extract: generating $config_file"
+          apptainer_exec moseq2-extract generate-config --output-file "$config_file" --camera-type azure
+        fi
+        moseq_python -c "
 import submit_moseq
-job_ids = submit_moseq.submit_extraction('$project_dir', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY)
-if job_ids:
-    print('submitted extraction jobs:', ', '.join(job_ids))
-else:
-    print('nothing to extract -- every session is already extracted (see run moseq check-progress $name)')
+job_ids = submit_moseq.submit_extraction('$project_dir', config_file='$config_file', exclusive=$MOSEQ_EXCLUSIVE, cores=$MOSEQ_CORES_PY, mem_gb=$MOSEQ_MEM_PY, time=$MOSEQ_TIME_PY)
+print('submitted extraction jobs:', ', '.join(job_ids))
 "
+      fi
       ;;
     aggregate)
       local name="${1-}"; shift || true
@@ -367,22 +381,19 @@ if $MOSEQ_EXCLUSIVE:
     check-progress)
       local name="${1-}"; shift || true
       local project_dir; project_dir="$(moseq_require_project "$name")"
-      echo "sessions needing extraction:"
-      moseq_python -c "
-from reconcile_moseq_extraction import sessions_needing_extraction
-needed = sessions_needing_extraction('$project_dir')
-print('  ' + ', '.join(needed) if needed else '  (none -- every session extracted)')
-"
-      echo ""
-      echo "pipeline progress (requires the container, may take a moment):"
+      echo "checking progress (requires the container, may take a moment):"
       apptainer_python -c "
 import sys
 sys.path.insert(0, '$MOSEQ_COMMON_DIR')
-from reconcile_moseq_progress import get_progress, pca_is_done, modeling_is_done, best_model_is_selected
-progress = get_progress('$project_dir')
-print('  pca done:            ', pca_is_done('$project_dir', progress))
-print('  modeling done:       ', modeling_is_done('$project_dir', progress))
-print('  best model selected: ', best_model_is_selected('$project_dir', progress))
+from reconcile_moseq import get_completion_info
+info = get_completion_info('$project_dir')
+needed = info['sessions_needing_extraction']
+print('sessions needing extraction:')
+print('  ' + ', '.join(needed) if needed else '  (none -- every session extracted)')
+print('')
+print('  pca done:            ', info['pca_done'])
+print('  modeling done:       ', info['modeling_done'])
+print('  best model selected: ', info['best_model_selected'])
 "
       ;;
     "")

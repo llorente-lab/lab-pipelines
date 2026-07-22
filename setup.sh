@@ -55,7 +55,7 @@ if [ -f "$MANIFEST" ]; then
     if [ -e "$PIPELINES_ROOT/current" ]; then
       env_file="$REPO_ROOT/$p_env_relpath"
       if [ -f "$env_file" ]; then
-        # Subshell avoids polluting this script's environment with env_setup.sh side effects.
+        # Subshell so env_setup.sh's side effects don't leak into this script.
         eval "$(bash -c "source '$env_file' >/dev/null 2>&1; echo VAL=\$$p_sif_var")"
         check "$p_name container image exists (\$$p_sif_var)" '[ -f "$VAL" ]'
       else
@@ -63,11 +63,8 @@ if [ -f "$MANIFEST" ]; then
       fi
     fi
 
-    # grep -F alone does a substring match, so a COMMENTED-OUT line (e.g.
-    # "#source /path/to/env_setup.sh") would still match -- since the
-    # commented line contains the target string as a substring -- and
-    # falsely report PASS even though it's never actually executed.
-    # Filtering out commented lines first avoids that false positive.
+    # A commented-out line (e.g. "#source ...") still substring-matches
+    # grep -F, so filter comments out first to avoid a false PASS.
     if grep -v '^[[:space:]]*#' "$BASHRC" 2>/dev/null | grep -qF "$env_setup_line"; then
       echo "PASS - ~/.bashrc already sources $p_name env_setup.sh, nothing to add"
     elif grep -qF "$env_setup_line" "$BASHRC" 2>/dev/null; then

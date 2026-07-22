@@ -38,8 +38,8 @@ def default_raw_base() -> str:
 
 def make_video(out_path: Path, n_frames: int, size: int):
     """A synthetic movie: dim noise background plus a handful of blobs that
-    drift and blink, similar enough in structure to real miniscope data that
-    motion correction and correlation_pnr both have something real to do."""
+    drift and blink
+    """
     rng = np.random.default_rng(0)
     fourcc = cv2.VideoWriter_fourcc(*"MJPG")
     writer = cv2.VideoWriter(str(out_path), fourcc, 30, (size, size), isColor=False)

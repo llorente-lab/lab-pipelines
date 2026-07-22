@@ -1,14 +1,13 @@
 #!/usr/bin/env python
 """
-Unit tests for reconcile_moseq_extraction.py. Pure stdlib + pyyaml, no
-Sherlock/Apptainer/moseq2 packages needed -- same philosophy as
+Unit tests for reconcile_moseq.py's extraction-status functions. Pure
+stdlib + pyyaml, no Sherlock/Apptainer/moseq2 packages needed (the
+moseq2_app import is lazy, inside get_progress) -- same philosophy as
 miniscope/tests/test_reconcile_common.py.
 
 Usage:
     python test_reconcile_moseq_extraction.py
 """
-
-from __future__ import annotations
 
 import shutil
 import sys
@@ -17,7 +16,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
-from reconcile_moseq_extraction import (
+from reconcile_moseq import (
     check_completion_status,
     find_session_dirs,
     get_extraction_status,
@@ -26,7 +25,11 @@ from reconcile_moseq_extraction import (
 )
 
 
-def write_status(session_dir: Path, complete: bool):
+def write_status(session_dir, complete):
+    """
+    session_dir (Path): session directory to write a fake status file into.
+    complete (bool): value to write for the "complete" field.
+    """
     proc = session_dir / "proc"
     proc.mkdir(parents=True, exist_ok=True)
     (proc / "results_00.yaml").write_text(f"complete: {str(complete).lower()}\n")

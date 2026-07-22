@@ -1,24 +1,22 @@
 #!/usr/bin/env python3
 """
-Resource estimator + flag-builder for pipeline stages -- the one place
---exclusive/--cores/--mem/--time -> sbatch-flag logic lives, so it isn't
-duplicated between moseq's Python submission code and miniscope's bash CLI.
+Turns a pipeline's resources.yaml into sbatch flags. Shared by moseq's
+Python submission code and miniscope's bash CLI, so the estimation logic
+only exists once.
 
-Importable by Python callers (moseq's submit_moseq.py):
+From Python:
     from estimate_resources import resource_flags
     flags = resource_flags("pipelines/moseq/resources.yaml", "pca-fit",
                             {"n_sessions": 12}, exclusive=False, cores=None,
                             mem_gb=None, time=None)
     # -> ["--partition=illorent", "--cpus-per-task=8", "--mem=600G"]
 
-Also runnable from bash (one flag per line, feed to `mapfile`):
+From bash (used by cli/resources.sh):
     mapfile -t flags < <(python3 estimate_resources.py \\
         pipelines/moseq/resources.yaml pca-fit n_sessions=12 \\
         --exclusive --cores 8 --mem 200 --time 1-00:00:00)
-Used by cli/resources.sh for miniscope's sbatch calls.
 """
 
-from __future__ import annotations
 import math
 import sys
 from pathlib import Path
@@ -32,15 +30,18 @@ except ImportError:
         yaml = None
 
 
-def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
+def estimate(resources_yaml, stage, metadata):
     """
-    Return resource requirements for `stage` given `metadata`.
-    Keys: partition, exclusive, cores, mem_gb. Missing key = no opinion.
+    Resource requirements for stage given metadata.
 
-    `partition` may be a plain string (single partition, the common case) or
-    a YAML list (e.g. `partition: [illorent, normal]`) -- kept as whichever
-    type the registry gave us here; resource_flags() below is what turns a
-    list into Slurm's comma-separated --partition=a,b syntax.
+    resources_yaml: path (str or Path) to a pipeline's resources.yaml
+    stage: stage name to look up
+    metadata: dict of values the stage's formulas can reference
+
+    Returns a dict with keys partition, exclusive, cores, mem_gb -- a
+    missing key means "no opinion." `partition` can be a plain string or a
+    YAML list (e.g. `[illorent, normal]`); resource_flags() turns a list
+    into Slurm's comma-separated --partition=X,Y syntax.
     """
     if yaml is None:
         return {}
@@ -85,29 +86,27 @@ def estimate(resources_yaml: str | Path, stage: str, metadata: dict) -> dict:
 
 
 def resource_flags(
-    resources_yaml: str | Path,
-    stage: str,
-    metadata: dict | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> list[str]:
+    resources_yaml,
+    stage,
+    metadata=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
     """
-    Compute --partition/--cpus-per-task/--mem/--exclusive/--time sbatch
-    flags for one stage. Combines the registry's estimate() with explicit
-    overrides -- the single implementation both moseq (calls this directly)
-    and miniscope (calls it via this module's CLI, see cli/resources.sh) use.
+    Build --partition/--cpus-per-task/--mem/--exclusive/--time sbatch flags
+    for one stage, combining the registry's estimate() with explicit
+    overrides (which always win). Returns a list of flag strings.
 
-    exclusive=True drops the formula-derived --cpus-per-task/--mem (those
-    are calibrated for a typical run, not a whole-node request) and adds
-    --exclusive instead. cores/mem_gb/time are explicit per-invocation
-    overrides that always win, even combined with exclusive=True.
-
-    A registry `partition` that's a list (e.g. [illorent, normal]) becomes
-    Slurm's comma-separated --partition=illorent,normal form -- Slurm treats
-    the job as eligible on any of them and schedules on whichever opens up
-    first, not a strict "prefer the first one" order.
+    resources_yaml: path to a pipeline's resources.yaml
+    stage: stage name to look up
+    metadata: dict of values the stage's formulas can reference
+    exclusive: request the whole node -- drops the formula-derived
+      cores/mem (those are sized for a typical run, not a whole node)
+    cores: explicit --cpus-per-task override (int)
+    mem_gb: explicit --mem override in GB (int)
+    time: explicit --time override, e.g. "1-00:00:00" (str)
     """
     result = estimate(resources_yaml, stage, metadata or {})
 
@@ -134,7 +133,8 @@ def resource_flags(
     return flags
 
 
-def main() -> None:
+def main():
+    """CLI entry point: prints one resolved sbatch flag per line."""
     if len(sys.argv) < 3:
         print(
             "usage: estimate_resources.py <resources.yaml> <stage> [key=value ...] "
@@ -143,11 +143,11 @@ def main() -> None:
         )
         sys.exit(1)
     resources_yaml, stage = sys.argv[1], sys.argv[2]
-    metadata: dict = {}
+    metadata = {}
     exclusive = False
-    cores: int | None = None
-    mem_gb: int | None = None
-    time: str | None = None
+    cores = None
+    mem_gb = None
+    time = None
 
     args = sys.argv[3:]
     i = 0

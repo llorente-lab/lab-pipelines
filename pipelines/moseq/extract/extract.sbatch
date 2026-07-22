@@ -2,9 +2,6 @@
 # Sequential-loop fallback for extraction (one job, all sessions). Use extract_array.sbatch
 # for the preferred job-array variant.
 #
-# Uses plain `extract` per session rather than `batch-extract --cluster-type local`:
-# batch-extract's CLI silently drops --output-dir on the local branch (confirmed bug in
-# moseq2-extract), so output never lands where expected. Plain `extract` forwards it correctly.
 #SBATCH --job-name=moseq-extract
 #SBATCH --partition=illorent
 #SBATCH --time=4-00:00:00

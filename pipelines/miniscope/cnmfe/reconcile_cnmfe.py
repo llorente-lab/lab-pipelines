@@ -25,13 +25,31 @@ from reconcile_common import (
 )
 
 
-def find_zip_anywhere(analyzed_base: str, mouse: str, date: str, tp: str, zip_dirs_on_drive: set[str]) -> bool:
+def find_zip_anywhere(analyzed_base, mouse, date, tp, zip_dirs_on_drive):
+    """
+    analyzed_base (str): scratch base directory for analyzed data.
+    mouse (str): mouse ID.
+    date (str): session date.
+    tp (str): timepoint.
+    zip_dirs_on_drive (set of str): directories already known to have an
+        ROI zip, from a Drive listing.
+
+    Returns a bool: whether an ROI zip exists for this session, on Drive
+    or locally.
+    """
     if marker_found(mouse, date, tp, zip_dirs_on_drive):
         return True
     return find_local_zip(analyzed_base, mouse, date, tp) is not None
 
 
-def reconcile(verbose: bool = False):
+def reconcile(verbose=False):
+    """
+    verbose (bool): print per-session status while reconciling.
+
+    Returns a 3-tuple of lists of (mouse, date, tp) tuples: sessions ready
+    for CNMF-E, sessions needing motion correction first, and sessions
+    still waiting on an ROI zip.
+    """
     analyzed_base = get_scratch_analyzed_base()
 
     model_dirs = collect_marker_dirs(ANALYZED_DONE_PATHS, is_cnmfe_model)

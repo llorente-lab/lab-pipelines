@@ -3,13 +3,11 @@
 Unit tests for submit_moseq.py's sbatch-wrapping and dependency-chaining
 logic. Mocks subprocess.run entirely -- no real sbatch, no Sherlock, no
 container needed (submit_moseq.py only imports subprocess/re/pathlib and
-reconcile_moseq_extraction, all pure stdlib).
+reconcile_moseq's extraction functions, all pure stdlib).
 
 Usage:
     python test_submit_moseq.py
 """
-
-from __future__ import annotations
 
 import shutil
 import subprocess
@@ -129,23 +127,35 @@ class TestDependencyFlags(unittest.TestCase):
         )
 
 
+def _make_unextracted_sessions(root, names):
+    """
+    root (Path): project root to create session dirs under.
+    names (list of str): session names, each created as not-yet-extracted.
+    """
+    for name in names:
+        d = root / name
+        d.mkdir()
+        (d / "metadata.json").write_text("{}")
+
+
 class TestSubmitExtraction(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        # submit_extraction requires config.yaml to already exist -- see
+        # its docstring for why (avoiding a race across array tasks).
+        (self.tmp / "config.yaml").write_text("{}")
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_submits_one_job_for_project_when_sessions_need_extraction(self):
-        # session_a: already extracted (should be skipped by batch-extract)
+        # session_a: already extracted (should be skipped)
         proc_a = self.tmp / "session_a" / "proc"
         proc_a.mkdir(parents=True)
         (proc_a / "results_00.yaml").write_text("complete: true\n")
 
         # session_b: not yet extracted
-        session_b = self.tmp / "session_b"
-        session_b.mkdir()
-        (session_b / "metadata.json").write_text("{}")
+        _make_unextracted_sessions(self.tmp, ["session_b"])
 
         submitted_args = []
 
@@ -175,6 +185,72 @@ class TestSubmitExtraction(unittest.TestCase):
 
         self.assertEqual(job_ids, [])
         mock_run.assert_not_called()
+
+    def test_raises_if_config_missing(self):
+        (self.tmp / "config.yaml").unlink()
+        _make_unextracted_sessions(self.tmp, ["session_a"])
+
+        with mock.patch.object(subprocess, "run") as mock_run:
+            with self.assertRaises(RuntimeError):
+                submit_moseq.submit_extraction(str(self.tmp))
+
+        mock_run.assert_not_called()
+
+    def test_array_size_capped_at_max_batches(self):
+        # More sessions than MAX_EXTRACT_ARRAY_SIZE -- the array must fan
+        # out to at most MAX_EXTRACT_ARRAY_SIZE tasks, not one per session.
+        n_sessions = submit_moseq.MAX_EXTRACT_ARRAY_SIZE + 5
+        _make_unextracted_sessions(self.tmp, [f"session_{i}" for i in range(n_sessions)])
+
+        submitted_args = []
+
+        def fake_run(cmd, **kwargs):
+            submitted_args.append(cmd)
+            return fake_sbatch_result("202")
+
+        with mock.patch.object(subprocess, "run", side_effect=fake_run):
+            submit_moseq.submit_extraction(str(self.tmp))
+
+        array_cmd = submitted_args[0]
+        array_flag = next(f for f in array_cmd if f.startswith("--array="))
+        self.assertEqual(array_flag, f"--array=0-{submit_moseq.MAX_EXTRACT_ARRAY_SIZE - 1}")
+
+        # every session must still be assigned to exactly one batch
+        sessions_file = self.tmp / "status" / "extract_sessions.txt"
+        batches = [line.split() for line in sessions_file.read_text().splitlines()]
+        self.assertEqual(len(batches), submit_moseq.MAX_EXTRACT_ARRAY_SIZE)
+        all_batched = sorted(s for batch in batches for s in batch)
+        self.assertEqual(all_batched, sorted(f"session_{i}" for i in range(n_sessions)))
+
+    def test_array_size_not_capped_when_fewer_sessions_than_max(self):
+        _make_unextracted_sessions(self.tmp, ["session_a", "session_b"])
+
+        with mock.patch.object(subprocess, "run", return_value=fake_sbatch_result("303")):
+            submit_moseq.submit_extraction(str(self.tmp))
+
+        sessions_file = self.tmp / "status" / "extract_sessions.txt"
+        batches = [line.split() for line in sessions_file.read_text().splitlines()]
+        self.assertEqual(len(batches), 2)
+
+
+class TestBatchSessions(unittest.TestCase):
+    def test_caps_at_max_batches(self):
+        batches = submit_moseq._batch_sessions([f"s{i}" for i in range(10)], max_batches=3)
+        self.assertEqual(len(batches), 3)
+        all_sessions = sorted(s for batch in batches for s in batch)
+        self.assertEqual(all_sessions, sorted(f"s{i}" for i in range(10)))
+
+    def test_fewer_sessions_than_max_uses_one_batch_per_session(self):
+        batches = submit_moseq._batch_sessions(["a", "b"], max_batches=6)
+        self.assertEqual(len(batches), 2)
+
+    def test_batches_are_balanced(self):
+        batches = submit_moseq._batch_sessions([f"s{i}" for i in range(7)], max_batches=3)
+        sizes = sorted(len(b) for b in batches)
+        self.assertEqual(sizes, [2, 2, 3])
+
+    def test_empty_input_returns_no_batches(self):
+        self.assertEqual(submit_moseq._batch_sessions([], max_batches=6), [])
 
 
 class TestSubmitKappaScan(unittest.TestCase):

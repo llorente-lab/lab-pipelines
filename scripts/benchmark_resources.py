@@ -44,19 +44,21 @@ how to invoke the real stage command against it -- everything else
 (sampling, fitting, margin, printing) is generic.
 """
 
+# Needed so the dataclass fields below (which use `int | None` syntax) don't
+# get evaluated eagerly -- this repo targets Python 3.9 (see setup.sh), and
+# that union syntax only works at runtime on 3.10+.
 from __future__ import annotations
 
 import argparse
 import csv
 import math
-import os
 import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -71,10 +73,16 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # two tools agree on method in the one case they overlap.
 
 
-def _process_tree_rss_cpu(root_pid: int) -> tuple[float, float]:
-    """Sum RSS (MB) and %CPU across root_pid and all its descendants, via a
-    single `ps -eo pid,ppid,rss,%cpu` snapshot (cheap, one call covers the
-    whole tree instead of walking it recursively)."""
+def _process_tree_rss_cpu(root_pid):
+    """
+    Sum RSS and %CPU across root_pid and all its descendants, via a single
+    `ps -eo pid,ppid,rss,%cpu` snapshot (cheap, one call covers the whole
+    tree instead of walking it recursively).
+
+    root_pid (int): PID of the process tree's root.
+
+    Returns a (float, float) tuple: total RSS in MB, total %CPU.
+    """
     try:
         out = subprocess.run(
             ["ps", "-eo", "pid,ppid,rss,pcpu"],
@@ -94,11 +102,11 @@ def _process_tree_rss_cpu(root_pid: int) -> tuple[float, float]:
             continue
         rows.append((pid, ppid, rss_kb, cpu))
 
-    children: dict[int, list[int]] = {}
+    children = {}
     for pid, ppid, _, _ in rows:
         children.setdefault(ppid, []).append(pid)
 
-    keep: set[int] = set()
+    keep = set()
     stack = [root_pid]
     while stack:
         pid = stack.pop()
@@ -121,15 +129,22 @@ class SampleResult:
     exit_code: int | None = None
 
 
-def run_and_sample(cmd: list[str], interval: float = 2.0, timeout: float | None = None) -> SampleResult:
-    """Runs `cmd` as a subprocess, polling its full process tree's RSS/CPU
-    every `interval` seconds in a background thread until it exits.
-    Returns peak RSS (the number that actually matters for sizing
-    --mem-per-cpu, an average would hide the spike) and mean CPU% (a
-    reasonable proxy for how many cores were actually kept busy, since
-    ps's %cpu is already normalized per-core-100%)."""
+def run_and_sample(cmd, interval=2.0, timeout=None):
+    """
+    Run cmd as a subprocess, polling its full process tree's RSS/CPU every
+    `interval` seconds in a background thread until it exits. Returns peak
+    RSS (an average would hide the spike that actually matters for sizing
+    --mem-per-cpu) and mean CPU% (ps's %cpu is already normalized
+    per-core-100%, so this is a reasonable proxy for cores kept busy).
+
+    cmd (list of str): argv to run.
+    interval (float): seconds between resource samples.
+    timeout (float or None): kill the process if it runs longer than this.
+
+    Returns a SampleResult.
+    """
     result = SampleResult()
-    cpu_samples: list[float] = []
+    cpu_samples = []
     stop = threading.Event()
 
     t0 = time.monotonic()
@@ -184,7 +199,13 @@ class Recipe:
     env_setup_relpath: str  # sourced before building the command (for real, non-dry-run use)
 
 
-def _moseq_extract_setup(size: int, workdir: Path) -> dict:
+def _moseq_extract_setup(size, workdir):
+    """
+    size (int): number of frames to generate.
+    workdir (Path): temp directory to generate synthetic data into.
+
+    Returns a dict with keys project_root and session_dir (both Path).
+    """
     gen = REPO_ROOT / "pipelines/moseq/tests/generate_moseq_sample_data.py"
     subprocess.run(
         [sys.executable, str(gen), "--projects-base", str(workdir), "--frames", str(size), "--size", "80"],
@@ -194,7 +215,14 @@ def _moseq_extract_setup(size: int, workdir: Path) -> dict:
     return {"project_root": project_root, "session_dir": project_root / "session_a"}
 
 
-def _moseq_extract_command(size: int, workdir: Path, ctx: dict) -> list[str]:
+def _moseq_extract_command(size, workdir, ctx):
+    """
+    size (int): unused here, kept for a consistent recipe signature.
+    workdir (Path): temp directory holding the synthetic data.
+    ctx (dict): return value of _moseq_extract_setup.
+
+    Returns a list of str, the argv to run.
+    """
     session_dir = ctx["session_dir"]
     config_file = ctx["project_root"] / "config.yaml"
     # Mirrors extract.sbatch's per-session apptainer_exec call exactly
@@ -211,7 +239,13 @@ def _moseq_extract_command(size: int, workdir: Path, ctx: dict) -> list[str]:
     ]
 
 
-def _miniscope_mc_setup(size: int, workdir: Path) -> dict:
+def _miniscope_mc_setup(size, workdir):
+    """
+    size (int): number of frames to generate.
+    workdir (Path): temp directory to generate synthetic data into.
+
+    Returns a dict with key raw_base (Path).
+    """
     gen = REPO_ROOT / "pipelines/miniscope/tests/generate_sample_data.py"
     subprocess.run(
         [sys.executable, str(gen), "--raw-base", str(workdir), "--frames", str(size), "--size", "100"],
@@ -220,11 +254,19 @@ def _miniscope_mc_setup(size: int, workdir: Path) -> dict:
     return {"raw_base": workdir}
 
 
-def _miniscope_mc_command(size: int, workdir: Path, ctx: dict) -> list[str]:
-    # Mirrors run_motion_correction's apptainer_python call in
-    # pipeline_common.sh, run against the single synthetic session directly
-    # (bypasses reconciliation/mc_queue entirely, same as motion_correction.sbatch's
-    # <mouse> <date> <tp> direct-session mode).
+def _miniscope_mc_command(size, workdir, ctx):
+    """
+    Mirrors run_motion_correction's apptainer_python call in
+    pipeline_common.sh, run against the single synthetic session directly
+    (bypasses reconciliation/mc_queue, same as motion_correction.sbatch's
+    <mouse> <date> <tp> direct-session mode).
+
+    size (int): unused here, kept for a consistent recipe signature.
+    workdir (Path): unused here, kept for a consistent recipe signature.
+    ctx (dict): return value of _miniscope_mc_setup.
+
+    Returns a list of str, the argv to run.
+    """
     return [
         "bash", "-c",
         f'source "{REPO_ROOT}/pipelines/miniscope/common/env_setup.sh" >/dev/null 2>&1 && '
@@ -233,7 +275,8 @@ def _miniscope_mc_command(size: int, workdir: Path, ctx: dict) -> list[str]:
     ]
 
 
-RECIPES: dict[tuple[str, str], Recipe] = {
+# keys are (pipeline, stage) tuples, values are Recipe instances
+RECIPES = {
     ("moseq", "extract"): Recipe(
         pipeline="moseq", stage="extract", size_metadata_key="n_frames",
         setup=_moseq_extract_setup, command=_moseq_extract_command,
@@ -249,15 +292,28 @@ RECIPES: dict[tuple[str, str], Recipe] = {
 
 # --- curve fitting ---------------------------------------------------------
 
-def _r_squared(y: list[float], y_hat: list[float]) -> float:
+def _r_squared(y, y_hat):
+    """
+    y (list of float): observed values.
+    y_hat (list of float): fitted/predicted values.
+
+    Returns a float, the R^2 goodness-of-fit.
+    """
     mean_y = sum(y) / len(y)
     ss_tot = sum((v - mean_y) ** 2 for v in y)
     ss_res = sum((v - h) ** 2 for v, h in zip(y, y_hat))
     return 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
 
 
-def _linear_fit(x: list[float], y: list[float]) -> tuple[float, float, float]:
-    """Least-squares y = a*x + b. Returns (a, b, r_squared)."""
+def _linear_fit(x, y):
+    """
+    Least-squares y = a*x + b.
+
+    x (list of float): regressor values.
+    y (list of float): observed values.
+
+    Returns a (float, float, float) tuple: a, b, r_squared.
+    """
     n = len(x)
     mean_x, mean_y = sum(x) / n, sum(y) / n
     num = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y))
@@ -268,10 +324,17 @@ def _linear_fit(x: list[float], y: list[float]) -> tuple[float, float, float]:
     return a, b, _r_squared(y, y_hat)
 
 
-def _power_fit(x: list[float], y: list[float]) -> tuple[float, float, float]:
-    """Least-squares y = a * x^p, fit in log-log space. Returns (a, p, r_squared)
-    computed back in the ORIGINAL space (not log space), so it's directly
-    comparable to the linear fit's r_squared."""
+def _power_fit(x, y):
+    """
+    Least-squares y = a * x^p, fit in log-log space. r_squared is computed
+    back in the original (not log) space, so it's directly comparable to
+    the linear fit's r_squared.
+
+    x (list of float): regressor values.
+    y (list of float): observed values.
+
+    Returns a (float, float, float) tuple: a, p, r_squared.
+    """
     if any(v <= 0 for v in x) or any(v <= 0 for v in y):
         return 0.0, 1.0, -math.inf  # can't log-transform, disqualify this model
     log_x = [math.log(v) for v in x]
@@ -282,12 +345,22 @@ def _power_fit(x: list[float], y: list[float]) -> tuple[float, float, float]:
     return a, p, _r_squared(y, y_hat)
 
 
-def suggest_formula(sizes: list[float], values: list[float], margin: float, var_name: str) -> str:
-    """Picks whichever of linear/power-law fits better (by R^2) and returns
-    a resources.yaml-ready formula string, with `margin` baked in as a flat
-    multiplier -- deliberately applied to the whole formula, not just the
-    fitted slope, so it scales the intercept/fallback risk the same way at
-    every input size rather than only protecting the high end."""
+def suggest_formula(sizes, values, margin, var_name):
+    """
+    Picks whichever of linear/power-law fits better (by R^2) and returns a
+    resources.yaml-ready formula string. `margin` is baked in as a flat
+    multiplier applied to the whole formula (not just the fitted slope),
+    so it scales the intercept/fallback risk the same way at every input
+    size rather than only protecting the high end.
+
+    sizes (list of float): regressor values (the size sweep).
+    values (list of float): observed resource values (mem or cores).
+    margin (float): safety multiplier.
+    var_name (str): variable name to use in the generated formula string.
+
+    Returns a (str, str) tuple: the formula, and a human-readable
+    description of which fit was chosen and its R^2.
+    """
     a_lin, b_lin, r2_lin = _linear_fit(sizes, values)
     a_pow, p_pow, r2_pow = _power_fit(sizes, values)
 
@@ -305,7 +378,11 @@ def suggest_formula(sizes: list[float], values: list[float], margin: float, var_
 CSV_COLUMNS = ["pipeline", "stage", "size_metadata_key", "size", "peak_rss_mb", "mean_cpu_pct", "wall_s", "exit_code"]
 
 
-def append_rows(csv_path: Path, rows: list[dict]):
+def append_rows(csv_path, rows):
+    """
+    csv_path (Path): CSV file to append to, created with a header if new.
+    rows (list of dict): rows to append, keyed by CSV_COLUMNS.
+    """
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     write_header = not csv_path.exists()
     with open(csv_path, "a", newline="") as f:
@@ -316,7 +393,8 @@ def append_rows(csv_path: Path, rows: list[dict]):
             w.writerow(row)
 
 
-def read_rows(csv_path: Path) -> list[dict]:
+def read_rows(csv_path):
+    """csv_path (Path): CSV file to read. Returns a list of dict."""
     with open(csv_path, newline="") as f:
         return list(csv.DictReader(f))
 

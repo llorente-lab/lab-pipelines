@@ -1,18 +1,11 @@
 #!/bin/bash
-# Shared sbatch job boilerplate for any pipeline's stage scripts. Originally
-# written for Moseq (extract, aggregate, pca_fit, pca_apply,
-# compute_changepoints, kappa_scan, learn_model) 
+# Shared sbatch job boilerplate for any pipeline's stage scripts.
 #
-# job_init:
-#   - validates project_root was given (usage message auto-derived from
-#     $0, so it's always correct for whichever script sourced this)
-#   - resolves $PROJECT_ROOT to an absolute path (re-exported as a global,
-#     same variable name every stage script already used)
-#   - sets up <project_root>/status/<stage>.json (latest run only, kept for
-#     backward compat) + <project_root>/status/history.jsonl (append-only,
-#     every run ever) via the EXIT trap that writes completed/failed to
-#     both. Shared by every pipeline that sources this file, so both
-#     moseq and miniscope get run history for free.
+# job_init validates the project_root arg, resolves it to an absolute path,
+# and sets an EXIT trap that writes each run's outcome to
+# <project_root>/status/<stage>.json (latest run) and
+# status/history.jsonl (every run, append-only). Any pipeline that sources
+# this gets run history and the dashboard for free.
 
 _JOB_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091

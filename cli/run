@@ -17,9 +17,8 @@ source "$CLI_DIR/manifest.sh"
 # shellcheck disable=SC1091
 source "$CLI_DIR/resources.sh"
 
-# Shell functions defined by env_setup.sh do NOT cross process boundaries --
-# `run` is its own child process, so sourcing here is required even if the
-# caller already sourced env_setup.sh in their interactive shell.
+# `run` is its own process, so it has to source each pipeline's env_setup.sh
+# itself -- functions from the caller's shell don't carry over.
 PIPELINE_NAMES=()
 declare -A PIPELINE_ENV_VAR
 declare -A PIPELINE_SIF_VAR
@@ -47,13 +46,10 @@ while IFS=: read -r p_name p_module p_env_relpath p_env_var p_sif_var p_resource
   PIPELINE_SIF_VAR["$p_name"]="$p_sif_var"
 done < <(load_pipeline_manifest "$MANIFEST")
 
-# Every pipeline's env_setup.sh defines its own apptainer_rclone()/SIF, all
-# under the same generic names -- whichever pipeline is sourced LAST in the
-# loop above silently wins. That's fine for pipeline-specific commands (they
-# require_pipeline_env first, so the right one is always active), but `run
-# sync` is pipeline-agnostic and must not depend on manifest order. Instead,
-# resolve a SIF explicitly here, deterministically preferring the first
-# pipeline (in manifest order) that has its sif_var actually set.
+# Every pipeline's env_setup.sh sets apptainer_rclone()/SIF under the same
+# names, so whichever one loads last wins -- fine for pipeline-specific
+# commands, but `run sync` isn't tied to one pipeline, so it resolves a SIF
+# here explicitly (first pipeline in manifest order with its sif_var set).
 _sync_apptainer_rclone() {
   local sif="" name sif_var
   for name in "${PIPELINE_NAMES[@]}"; do
@@ -211,8 +207,8 @@ cmd_pipeline_new() {
   name_upper="$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
   name_title="$(echo "${name:0:1}" | tr '[:lower:]' '[:upper:]')${name:1}"
 
-  # Copy everything except the template's own README -- that's instructions
-  # for using the template, not documentation for the new pipeline.
+  # Skip the template's own README -- that's about using the template,
+  # not documentation for the new pipeline.
   mkdir -p "$dest_dir"
   local f rel out
   while IFS= read -r -d '' f; do
@@ -222,18 +218,16 @@ cmd_pipeline_new() {
     cp "$f" "$out"
   done < <(find "$template_dir" -type f ! -name README.md -print0)
 
-  # deploy_check.sh.example -> deploy_check.sh: safe now, since this is a
-  # real pipeline directory, not the inert template (see that file's own
-  # header comment for why the template keeps it as .example).
+  # This is a real pipeline dir now, not the inert template, so the check
+  # can go live: deploy_check.sh.example -> deploy_check.sh.
   if [ -f "$dest_dir/deploy_check.sh.example" ]; then
     mv "$dest_dir/deploy_check.sh.example" "$dest_dir/deploy_check.sh"
   fi
 
   cp "$PIPELINES_DIR/_template.sh" "$cli_module_dest"
 
-  # Placeholder substitution: TEMPLATE_* env vars/names -> <NAME_UPPER>_*,
-  # template -> <name> (function names, paths, comments), <name> -> <name>
-  # (the literal placeholder token used in a few comments/usage strings).
+  # Swap TEMPLATE/Template/template/<name> placeholders for the real name,
+  # in every case they appear in.
   while IFS= read -r -d '' f; do
     sed -i \
       -e "s/TEMPLATE/${name_upper}/g" \

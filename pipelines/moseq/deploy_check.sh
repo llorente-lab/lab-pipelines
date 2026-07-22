@@ -16,14 +16,14 @@ bash -n jupyter_kernel/moseq_kernel_wrapper.sh
 # would have caught that bug the first time.
 python3 -c "import json; json.load(open('jupyter_kernel/kernels/moseq2-apptainer/kernel.json'))"
 
-# reconcile_moseq_progress.py imports moseq2_app (needs the container), so
-# it's deliberately NOT checked here -- same reasoning as
-# miniscope/deploy_check.sh excluding test_path_resolution.py. Only the
-# pure-stdlib extraction-status check runs as part of the fast deploy gate.
+# reconcile_moseq.py's progress functions import moseq2_app lazily (inside
+# get_progress), so the module itself, and its extraction-status functions,
+# are still testable here without the container.
 python3 tests/test_reconcile_moseq_extraction.py
 
 # submit_moseq.py also only imports stdlib (subprocess/re/pathlib) +
-# reconcile_moseq_extraction, no moseq2 packages -- fully testable here too.
+# reconcile_moseq's extraction functions, no moseq2 packages -- fully
+# testable here too.
 python3 tests/test_submit_moseq.py
 
 for f in extract/extract.sbatch extract/aggregate.sbatch \
@@ -39,5 +39,5 @@ done
 python3 tests/test_compute_npcs.py
 
 # select_best_kappa.py needs moseq2_viz (container-only), so only
-# syntax-checked here, same treatment as reconcile_moseq_progress.py above.
+# syntax-checked here.
 python3 -c "import ast; ast.parse(open('model/select_best_kappa.py').read())"

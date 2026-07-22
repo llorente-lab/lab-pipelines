@@ -1,7 +1,5 @@
 """Slurm job submission for the Moseq pipeline."""
 
-from __future__ import annotations
-
 import json
 import os
 import re
@@ -10,7 +8,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from reconcile_moseq_extraction import sessions_needing_extraction
+from reconcile_moseq import sessions_needing_extraction
 
 MOSEQ_ROOT_DIR = Path(__file__).resolve().parent.parent
 EXTRACT_DIR = MOSEQ_ROOT_DIR / "extract"
@@ -23,19 +21,46 @@ _MOSEQ_REGISTRY = MOSEQ_ROOT_DIR / "resources.yaml"
 # Matches both real sbatch output and --test-only dry-run output.
 _JOB_ID_RE = re.compile(r"Submitted batch job (\d+)|sbatch: Job (\d+) to start at")
 
+# Cap on extraction array tasks -- a project with hundreds of sessions
+# shouldn't spawn hundreds of jobs. Sessions are split into at most this
+# many batches, and each array task works through its batch sequentially.
+MAX_EXTRACT_ARRAY_SIZE = 6
 
-def _resource_flags(
-    stage: str,
-    metadata: dict | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> list[str]:
-    """Thin wrapper around estimate_resources.resource_flags() -- the one
+
+def _batch_sessions(sessions, max_batches=MAX_EXTRACT_ARRAY_SIZE):
+    """
+    Split sessions into at most max_batches groups (round-robin, so batch
+    sizes differ by at most one), so a job array fans out to a capped
+    number of tasks instead of one task per session.
+
+    sessions (list of str): session names needing extraction.
+    max_batches (int): upper bound on number of array tasks.
+
+    Returns a list of lists of str, one list per batch (non-empty).
+    """
+    n_batches = min(len(sessions), max_batches)
+    batches = [[] for _ in range(n_batches)]
+    for i, session in enumerate(sessions):
+        batches[i % n_batches].append(session)
+    return batches
+
+
+def _resource_flags(stage, metadata=None, exclusive=False, cores=None, mem_gb=None, time=None):
+    """
+    Thin wrapper around estimate_resources.resource_flags() -- the one
     implementation of the exclusive/cores/mem/time -> sbatch-flag logic,
     also used by miniscope's bash CLI (see cli/resources.sh). Falls back to
-    just the explicit overrides if the estimator/registry is missing."""
+    just the explicit overrides if the estimator/registry is missing.
+
+    stage (str): resources.yaml stage key.
+    metadata (dict or None): values the stage's formulas can reference.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns a list of str, the sbatch flags.
+    """
     if _CLI_DIR.exists() and _MOSEQ_REGISTRY.exists():
         cli_dir = str(_CLI_DIR)
         if cli_dir not in sys.path:
@@ -49,7 +74,7 @@ def _resource_flags(
         except Exception:
             pass
 
-    flags: list[str] = []
+    flags = []
     if exclusive:
         flags.append("--exclusive")
     if cores is not None:
@@ -61,15 +86,27 @@ def _resource_flags(
     return flags
 
 
-def _count_aggregate_sessions(project_root: str) -> int | None:
+def _count_aggregate_sessions(project_root):
+    """
+    project_root (str): project's root directory.
+
+    Returns an int (number of .h5 files in aggregate_results/), or None if
+    that directory doesn't exist yet.
+    """
     agg = Path(project_root) / "aggregate_results"
     if not agg.is_dir():
         return None
     return len(list(agg.glob("*.h5")))
 
 
-def _log_flags(project_root: str, stage: str) -> list[str]:
-    """Return --output/--error sbatch flags pointing to <project_root>/slurm_logs/."""
+def _log_flags(project_root, stage):
+    """
+    project_root (str): project's root directory.
+    stage (str): stage name, used in the log filename.
+
+    Returns a list of str: --output/--error flags pointing to
+    <project_root>/slurm_logs/.
+    """
     log_dir = Path(project_root) / "slurm_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     return [
@@ -78,9 +115,16 @@ def _log_flags(project_root: str, stage: str) -> list[str]:
     ]
 
 
-def _record_job(project_root: str, stage: str, job_id: str) -> None:
-    """Append one line to <project_root>/status/jobs.jsonl -- read by `run moseq dashboard`
-    (common/dashboard.py) and cross-referenced against live squeue state / history.jsonl."""
+def _record_job(project_root, stage, job_id):
+    """
+    Append one line to <project_root>/status/jobs.jsonl -- read by
+    `run moseq dashboard` (common/dashboard.py) and cross-referenced
+    against live squeue state / history.jsonl.
+
+    project_root (str): project's root directory.
+    stage (str): stage name.
+    job_id (str): Slurm job ID.
+    """
     status_dir = Path(project_root) / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
     record = {
@@ -92,14 +136,19 @@ def _record_job(project_root: str, stage: str, job_id: str) -> None:
         f.write(json.dumps(record) + "\n")
 
 
-def _sbatch(
-    script: Path,
-    *positional_args: str,
-    sbatch_flags: list[str] | None = None,
-    record_job: tuple[str, str] | None = None,
-) -> str:
-    """Submit one job via sbatch, return its job ID. If record_job=(project_root, stage) is
-    given, also append the submission to that project's status/jobs.jsonl."""
+def _sbatch(script, *positional_args, sbatch_flags=None, record_job=None):
+    """
+    Submit one job via sbatch, return its job ID.
+
+    script (Path): the .sbatch script to submit.
+    positional_args (str): positional args passed through to the script.
+    sbatch_flags (list of str or None): extra flags passed to sbatch.
+    record_job (tuple of (str, str) or None): (project_root, stage) -- if
+        given, the submission is also appended to that project's
+        status/jobs.jsonl.
+
+    Returns the job ID (str).
+    """
     cmd = ["sbatch", *(sbatch_flags or []), str(script), *positional_args]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -120,41 +169,64 @@ def _sbatch(
     return job_id
 
 
-def _dependency_flags(depends_on: list[str] | None) -> list[str]:
+def _dependency_flags(depends_on):
+    """depends_on (list of str or None): job IDs to depend on. Returns a list of str."""
     if not depends_on:
         return []
     return [f"--dependency=afterok:{':'.join(depends_on)}"]
 
 
-def _mail_flags() -> list[str]:
-    """Return --mail-type=FAIL flags if PIPELINE_NOTIFY_EMAIL is set."""
+def _mail_flags():
+    """Returns a list of str: --mail-type=FAIL flags if PIPELINE_NOTIFY_EMAIL is set."""
     email = os.environ.get("PIPELINE_NOTIFY_EMAIL", "").strip()
     if not email:
         return []
     return ["--mail-type=FAIL", f"--mail-user={email}"]
 
 
-def _sbatch_flags(project_root: str, stage: str, depends_on: list[str] | None) -> list[str]:
+def _sbatch_flags(project_root, stage, depends_on):
+    """
+    project_root (str): project's root directory.
+    stage (str): stage name.
+    depends_on (list of str or None): job IDs to depend on.
+
+    Returns a list of str: log + dependency + mail flags combined.
+    """
     return _log_flags(project_root, stage) + _dependency_flags(depends_on) + _mail_flags()
 
 
 def _submit_stage(
-    script: Path,
-    project_root: str,
-    *positional_args: str,
-    log_stage: str,
-    resource_stage: str,
-    metadata: dict | None = None,
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Shared shape behind every non-extraction submit_* function below:
+    script,
+    project_root,
+    *positional_args,
+    log_stage,
+    resource_stage,
+    metadata=None,
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Shared shape behind every non-extraction submit_* function below:
     resolve sbatch flags (logs + dependency + mail + resources) and submit.
-    log_stage/resource_stage differ for a couple of stages (e.g. "pca_fit"
-    for the log filename vs "pca-fit" as the resources.yaml key)."""
+
+    script (Path): the .sbatch script to submit.
+    project_root (str): project's root directory.
+    positional_args (str): positional args passed through to the script.
+    log_stage (str): stage name used for the log filename and jobs.jsonl.
+    resource_stage (str): resources.yaml key for this stage -- differs
+        from log_stage for a couple of stages (e.g. "pca_fit" vs "pca-fit").
+    metadata (dict or None): values the stage's resource formulas can use.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     return _sbatch(
         script, *positional_args,
         sbatch_flags=_sbatch_flags(project_root, log_stage, depends_on)
@@ -164,19 +236,40 @@ def _submit_stage(
 
 
 def submit_extraction(
-    project_root: str,
-    config_file: str | None = None,
-    use_array: bool = True,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> list[str]:
-    """Submit extraction jobs; returns job ID(s) for dependency chaining, or [] if nothing to extract.
+    project_root,
+    config_file=None,
+    use_array=True,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Submit extraction jobs. exclusive is ignored here: extraction always
+    targets the shared normal partition regardless.
 
-    exclusive is ignored here: extraction always targets the shared normal partition regardless."""
+    project_root (str): project's root directory.
+    config_file (str or None): path to config.yaml, defaults to
+        <project_root>/config.yaml. Must already exist -- the caller
+        (cli/pipelines/moseq.sh) generates it before calling this, since
+        generating it here, once per array task, would race.
+    use_array (bool): submit as a batched Slurm job array (each task works
+        through a chunk of sessions sequentially) instead of a single job.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns a list of job ID strings for dependency chaining, or [] if
+    nothing needs extracting.
+    """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
+    if not Path(config_file).exists():
+        raise RuntimeError(
+            f"{config_file} doesn't exist -- generate it before calling "
+            f"submit_extraction (see the 'extract' case in cli/pipelines/moseq.sh)"
+        )
 
     sessions = sessions_needing_extraction(project_root)
     if not sessions:
@@ -194,10 +287,14 @@ def submit_extraction(
             )
         ]
 
+    batches = _batch_sessions(sessions)
+
     status_dir = Path(project_root) / "status"
     status_dir.mkdir(parents=True, exist_ok=True)
     sessions_file = status_dir / "extract_sessions.txt"
-    sessions_file.write_text("\n".join(sessions) + "\n")
+    # One line per batch, sessions space-separated within a line -- each
+    # array task reads its own line and works through it sequentially.
+    sessions_file.write_text("\n".join(" ".join(batch) for batch in batches) + "\n")
 
     log_dir = Path(project_root) / "slurm_logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -213,7 +310,7 @@ def submit_extraction(
         project_root, str(sessions_file), config_file,
         sbatch_flags=[
             *array_log_flags,
-            f"--array=0-{len(sessions) - 1}",
+            f"--array=0-{len(batches) - 1}",
             *_dependency_flags(None),
             *_mail_flags(),
             *res,
@@ -235,14 +332,26 @@ def submit_extraction(
 
 
 def submit_aggregate(
-    project_root: str,
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Consolidate session proc/ outputs into aggregate_results/ and regenerate moseq2-index.yaml."""
+    project_root,
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Consolidate session proc/ outputs into aggregate_results/ and
+    regenerate moseq2-index.yaml.
+
+    project_root (str): project's root directory.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     project_root = str(Path(project_root).resolve())
     return _submit_stage(
         EXTRACT_DIR / "aggregate.sbatch", project_root, project_root,
@@ -252,15 +361,28 @@ def submit_aggregate(
 
 
 def submit_pca_fit(
-    project_root: str,
-    config_file: str | None = None,
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Fit PCA across the aggregated session batch."""
+    project_root,
+    config_file=None,
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Fit PCA across the aggregated session batch.
+
+    project_root (str): project's root directory.
+    config_file (str or None): path to config.yaml, defaults to
+        <project_root>/config.yaml.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
     n = _count_aggregate_sessions(project_root)
@@ -273,16 +395,31 @@ def submit_pca_fit(
 
 
 def submit_pca_apply(
-    project_root: str,
-    config_file: str | None = None,
-    pca_file: str | None = None,
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Project extracted sessions onto an already-fit PCA basis."""
+    project_root,
+    config_file=None,
+    pca_file=None,
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Project extracted sessions onto an already-fit PCA basis.
+
+    project_root (str): project's root directory.
+    config_file (str or None): path to config.yaml, defaults to
+        <project_root>/config.yaml.
+    pca_file (str or None): path to pca.h5, defaults to
+        <project_root>/_pca/pca.h5.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
     pca_file = pca_file or str(Path(project_root) / "_pca" / "pca.h5")
@@ -296,17 +433,34 @@ def submit_pca_apply(
 
 
 def submit_compute_changepoints(
-    project_root: str,
-    config_file: str | None = None,
-    pca_file_components: str | None = None,
-    pca_file_scores: str | None = None,
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Compute model-free syllable changepoints from PCA scores."""
+    project_root,
+    config_file=None,
+    pca_file_components=None,
+    pca_file_scores=None,
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Compute model-free syllable changepoints from PCA scores.
+
+    project_root (str): project's root directory.
+    config_file (str or None): path to config.yaml, defaults to
+        <project_root>/config.yaml.
+    pca_file_components (str or None): path to pca.h5, defaults to
+        <project_root>/_pca/pca.h5.
+    pca_file_scores (str or None): path to pca_scores.h5, defaults to
+        <project_root>/_pca/pca_scores.h5.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     project_root = str(Path(project_root).resolve())
     config_file = config_file or str(Path(project_root) / "config.yaml")
     pca_file_components = pca_file_components or str(Path(project_root) / "_pca" / "pca.h5")
@@ -322,19 +476,36 @@ def submit_compute_changepoints(
 
 
 def submit_kappa_scan(
-    project_root: str,
-    n_models: int = 10,
-    scan_scale: str = "log",
-    min_kappa: float | None = None,
-    max_kappa: float | None = None,
-    num_iter: int = 100,
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Train n_models models across a kappa range in a single job; does not select a winner."""
+    project_root,
+    n_models=10,
+    scan_scale="log",
+    min_kappa=None,
+    max_kappa=None,
+    num_iter=100,
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Train n_models models across a kappa range in a single job; does not
+    select a winner.
+
+    project_root (str): project's root directory.
+    n_models (int): number of models to scan.
+    scan_scale (str): "log" or "linear" spacing across the kappa range.
+    min_kappa (float or None): lower bound of the kappa range.
+    max_kappa (float or None): upper bound of the kappa range.
+    num_iter (int): training iterations per model.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     project_root = str(Path(project_root).resolve())
     args = [
         project_root,
@@ -353,17 +524,32 @@ def submit_kappa_scan(
 
 
 def submit_learn_model(
-    project_root: str,
-    kappa: float,
-    num_iter: int = 1000,
-    dest_name: str = "model.p",
-    depends_on: list[str] | None = None,
-    exclusive: bool = False,
-    cores: int | None = None,
-    mem_gb: int | None = None,
-    time: str | None = None,
-) -> str:
-    """Train a single final model at a chosen kappa."""
+    project_root,
+    kappa,
+    num_iter=1000,
+    dest_name="model.p",
+    depends_on=None,
+    exclusive=False,
+    cores=None,
+    mem_gb=None,
+    time=None,
+):
+    """
+    Train a single final model at a chosen kappa.
+
+    project_root (str): project's root directory.
+    kappa (float): the chosen kappa value.
+    num_iter (int): training iterations.
+    dest_name (str): filename for the trained model, written under
+        <project_root>/models/.
+    depends_on (list of str or None): job IDs this submission depends on.
+    exclusive (bool): request the whole node.
+    cores (int or None): explicit --cpus-per-task override.
+    mem_gb (int or None): explicit --mem override in GB.
+    time (str or None): explicit --time override.
+
+    Returns the job ID (str).
+    """
     project_root = str(Path(project_root).resolve())
     return _submit_stage(
         MODEL_DIR / "learn_model.sbatch", project_root,
@@ -374,12 +560,19 @@ def submit_learn_model(
     )
 
 
-def submit_full_pipeline(
-    project_root: str, config_file: str | None = None, exclusive: bool = False
-) -> dict:
-    """Chain extraction -> aggregate -> pca-fit -> pca-apply -> changepoints via afterok dependencies.
+def submit_full_pipeline(project_root, config_file=None, exclusive=False):
+    """
+    Chain extraction -> aggregate -> pca-fit -> pca-apply -> changepoints
+    via afterok dependencies. Modeling (kappa-scan/learn-model) is excluded
+    because kappa selection requires human review.
 
-    Modeling (kappa-scan/learn-model) is excluded because kappa selection requires human review."""
+    project_root (str): project's root directory.
+    config_file (str or None): path to config.yaml, defaults to
+        <project_root>/config.yaml.
+    exclusive (bool): request the whole node for every stage in the chain.
+
+    Returns a dict mapping stage name to job ID(s) submitted for it.
+    """
     extraction_jobs = submit_extraction(project_root, config_file)
     aggregate_job = submit_aggregate(
         project_root, depends_on=extraction_jobs or None, exclusive=exclusive

@@ -4,9 +4,8 @@
 # Usage (call once after the job's project_root / log dir is known):
 #   start_resource_monitor <log_file> [interval_seconds]
 
-# Starts a background loop that appends one TSV row per interval.
-# The loop stops automatically when the parent job exits (it's a child
-# of this shell, so SLURM's cleanup kills it when the job ends).
+# Starts a background loop appending one TSV row per interval. Stops on
+# its own when the job exits (SLURM cleans up the whole cgroup).
 #
 # Log format (TSV, one header row then data):
 #   timestamp        ISO-8601 local time

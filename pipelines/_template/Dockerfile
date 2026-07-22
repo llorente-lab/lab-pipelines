@@ -1,15 +1,10 @@
-# Reference Dockerfile for a new pipeline's container image. This is a
-# skeleton, not something you build as-is -- fill in the real base image and
-# package installs for your actual pipeline before using it.
+# Skeleton Dockerfile for a new pipeline's container image -- fill in the
+# real base image and dependencies before building.
 
 FROM ubuntu:22.04
-# ^ pick whatever real base image your pipeline needs (a CUDA image, a conda
-#   base image, etc.) -- this is just a placeholder.
+# Swap for whatever base image you actually need (CUDA, conda, etc).
 
-# Example: accept a build-time ref/version, matching the "build_args" field
-# your pipelines.yaml entry can pass in (see pipelines.yaml's own header
-# comment for the exact mechanism). Optional -- drop this if you don't need
-# a build-time-configurable version.
+# Optional: a build-time version tag, set via pipelines.yaml's build_args.
 ARG BUILD_SHA=unknown
 ENV BUILD_SHA=${BUILD_SHA}
 
@@ -17,9 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# rclone is required inside the container if your pipeline's stages (or
-# common/sync.sh-style wrappers) run `run sync`/`rclone` from inside a job --
-# see common/env_setup.sh's apptainer_rclone() pattern in moseq/miniscope.
+# rclone, needed if any stage calls `run sync`/rclone from inside a job.
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
     && curl https://rclone.org/install.sh | bash \
     && rm -rf /var/lib/apt/lists/*

@@ -1,23 +1,16 @@
 #!/bin/bash
-# Generator for the apptainer_python/apptainer_rclone/apptainer_exec wrapper
-# functions every pipeline's env_setup.sh has hand-copied so far (moseq and
-# miniscope currently define near-identical versions of these by hand).
-# New pipelines should call this instead of copy-pasting the wrappers.
+# Defines apptainer_python/apptainer_rclone/apptainer_exec wrappers so new
+# pipelines don't have to hand-copy them (moseq and miniscope currently do).
 #
-# Usage, in a pipeline's env_setup.sh, after that pipeline's own SIF/
-# RCLONE_CONFIG vars are exported:
+# Usage, in a pipeline's env_setup.sh, after its SIF/RCLONE_CONFIG vars are
+# exported:
 #
 #   # shellcheck disable=SC1091
 #   source "$REPO_COMMON_DIR/apptainer_helpers.sh"
 #   define_apptainer_wrappers MY_SIF_VAR
 #
-# define_apptainer_wrappers <sif-var-name> defines, in the calling shell:
-#   apptainer_python <args...>   -- runs `python <args...>` in the container
-#   apptainer_rclone <args...>   -- runs `rclone <args...>` in the container
-#   apptainer_exec <args...>     -- runs an arbitrary command in the container
-#                                    (for pipelines with installed console
-#                                    entry points, e.g. moseq2-extract, that
-#                                    aren't plain python scripts)
+# apptainer_exec is for anything with an installed console entry point
+# (e.g. moseq2-extract) rather than a plain python script.
 define_apptainer_wrappers() {
   local sif_var="$1"
   if [ -z "$sif_var" ]; then
