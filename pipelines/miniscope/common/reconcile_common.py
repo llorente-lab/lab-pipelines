@@ -9,9 +9,6 @@ import subprocess
 import time
 from pathlib import Path
 
-# Short-lived disk cache for `rclone lsf -R` results. Caching by remote path (with a short TTL, not indefinite --
-# Drive state does change) turns the second+ scan of the same path into a
-# local file read instead of another traversal.
 _CACHE_DIR = Path(
     os.environ.get("MINISCOPE_RECONCILE_CACHE_DIR")
     or f"{os.environ.get('SCRATCH', '/tmp')}/Miniscope/.reconcile_cache"
@@ -102,6 +99,27 @@ EXCLUDE_MICE = {
     "VK_20250416_c",
     "VK_20250416_d",
 }
+
+
+def slurm_worker_processes(reserve=1):
+    """
+    Worker count for CaImAn's setup_cluster(n_processes=...)
+    reserve (int): cores to leave for the main process, subtracted from
+        the allocation (matches CaImAn's own convention of not using every
+        core for workers).
+
+    Returns an int, always at least 1.
+    """
+    allocated = os.environ.get("SLURM_CPUS_PER_TASK")
+    if allocated:
+        try:
+            return max(1, int(allocated) - reserve)
+        except ValueError:
+            pass
+    # Not running under Slurm (e.g. local testing) -- fall back to the
+    # host's own count, since there's no allocation to respect.
+    import psutil
+    return max(1, psutil.cpu_count() - reserve)
 
 
 def get_scratch_analyzed_base():

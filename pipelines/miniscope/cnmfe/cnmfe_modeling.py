@@ -31,7 +31,13 @@ from caiman.source_extraction.cnmf import params as params
 from caiman.utils.visualization import plot_contours
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
-from reconcile_common import ANALYZED_DONE_PATHS, is_roi_zip, rclone_list_files, session_dir_variants
+from reconcile_common import (
+    ANALYZED_DONE_PATHS,
+    is_roi_zip,
+    rclone_list_files,
+    session_dir_variants,
+    slurm_worker_processes,
+)
 
 try:
     cv2.setNumThreads(0)
@@ -218,8 +224,11 @@ def extract_temporal_seed(A: sp.csc_matrix, images: np.ndarray, dims: tuple,
 
 def start_cluster():
     gc.collect()
+    # n_processes is capped by the job's actual Slurm allocation, not
+    # psutil.cpu_count() -- see slurm_worker_processes()'s docstring for
+    # why passing None here oversubscribes shared nodes.
     _, cluster, n_processes = cm.cluster.setup_cluster(
-        backend='multiprocessing', n_processes=None, ignore_preexisting=False,
+        backend='multiprocessing', n_processes=slurm_worker_processes(), ignore_preexisting=False,
     )
     print(f"Cluster started with {n_processes} processes")
     return cluster, n_processes

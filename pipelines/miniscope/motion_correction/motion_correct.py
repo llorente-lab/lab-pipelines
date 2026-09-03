@@ -27,7 +27,7 @@ from caiman.motion_correction import MotionCorrect
 from caiman.source_extraction.cnmf import params as params
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
-from reconcile_common import gdrive_path
+from reconcile_common import gdrive_path, slurm_worker_processes
 
 # OpenCV threading fights with CaImAn's multiprocessing cluster.
 try:
@@ -262,13 +262,16 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
             movie_path = str(output_path)
         timing_log['trim_video'] = log_step_time("Trim video", step_start)
 
-        print(f"{psutil.cpu_count()} CPUs available")
+        print(f"{psutil.cpu_count()} CPUs on this node, {slurm_worker_processes()} allocated to this job")
         gc.collect()
 
         step_start = time.time()
+        # n_processes is capped by the job's actual Slurm allocation, not
+        # psutil.cpu_count() -- see slurm_worker_processes()'s docstring
+        # for why passing None here oversubscribes shared nodes.
         _, cluster, n_processes = cm.cluster.setup_cluster(
             backend='multiprocessing',
-            n_processes=None,
+            n_processes=slurm_worker_processes(),
             ignore_preexisting=False,
         )
         print(f"Cluster started with {n_processes} processes")
