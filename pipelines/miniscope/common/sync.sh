@@ -47,6 +47,9 @@ fi
 # scratch-wide log tree, so everything about a session -- mmap, correlation
 # image, timing log, and now the sync log -- is in one place. It syncs to
 # Drive along with everything else next run, which is fine, it's small.
+# The log for THIS run is excluded below: rclone writes to it while copying,
+# so its size changes mid-upload, rclone reports an error and retries, and
+# the whole sync (and the job) would fail even though every result uploaded.
 LOG_DIR="$SRC_DIR/logs"
 mkdir -p "$LOG_DIR"
 SYNC_LOG="$LOG_DIR/sync_$(date +%Y%m%d_%H%M%S).log"
@@ -62,6 +65,7 @@ run sync "$SRC_DIR" "$DEST_DIR" \
   --fast-list \
   --exclude="*.mmap" \
   --exclude="*.avi" \
+  --exclude="/logs/$(basename "$SYNC_LOG")" \
   --ignore-times \
   --log-file="$SYNC_LOG" \
   --log-level=INFO

@@ -150,7 +150,13 @@ cmd_sync() {
     exit 1
   fi
   shift 2
-  _sync_apptainer_rclone copy "$src" "$dst" --progress "$@"
+  # --progress redraws a status block in place, which only makes sense on a
+  # screen. In a batch job stdout is the .out file, and every redraw gets
+  # appended as new text (hundreds of lines per sync), so only add it when
+  # stdout is a terminal.
+  local progress=()
+  [ -t 1 ] && progress=(--progress)
+  _sync_apptainer_rclone copy "$src" "$dst" ${progress[@]+"${progress[@]}"} "$@"
 }
 
 cmd_queue() {
