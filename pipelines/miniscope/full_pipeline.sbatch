@@ -3,8 +3,8 @@
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=7-00:00:00
-# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
-# $SCRATCH/logs/caiman_full_pipeline/. Falls back to slurm-%j.out if those vars aren't set.
+# No --output/--error here: `run miniscope` passes them explicitly, routing logs to
+# $SCRATCH/logs/caiman_full_pipeline/. A bare `sbatch` of this file writes slurm-%j.out in the cwd.
 #
 # Full sweep only. Enforces a hard gate: if any MC work remains after the sweep, the
 # job aborts rather than silently starting CNMF-E on an incomplete state.

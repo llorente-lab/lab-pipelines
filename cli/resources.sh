@@ -19,16 +19,23 @@ _force_exclusive() {
   _RF_EXCLUSIVE="1"
 }
 
-# No estimator/registry found -> RESOURCE_FLAGS stays empty, callers fall
-# back to the .sbatch file's own #SBATCH defaults.
+# A pipeline with no resources.yaml -> RESOURCE_FLAGS stays empty and the
+# .sbatch file's own #SBATCH defaults apply. If a registry exists but
+# estimation fails (missing PyYAML, unknown stage, bad YAML), refuse to
+# submit: silently falling back used to give CaImAn jobs 1 CPU and make
+# moseq jobs die on `set -u` before doing anything.
 _apply_resource_overrides() {
   local cores="$1" mem_gb="$2" time="$3"
   RESOURCE_FLAGS=()
 
   local estimator="$CLI_DIR/estimate_resources.py"
   local registry="$REPO_ROOT/pipelines/$_RF_PIPELINE/resources.yaml"
-  if [ ! -f "$estimator" ] || [ ! -f "$registry" ]; then
+  if [ ! -f "$registry" ]; then
     return 0
+  fi
+  if [ ! -f "$estimator" ]; then
+    echo "run: $registry exists but the estimator is missing at $estimator -- deploy is broken" >&2
+    exit 1
   fi
 
   local extra=()
@@ -37,10 +44,17 @@ _apply_resource_overrides() {
   [ -n "$mem_gb" ] && extra+=(--mem "$mem_gb")
   [ -n "$time" ]   && extra+=(--time "$time")
 
-  mapfile -t RESOURCE_FLAGS < <(
-    python3 "$estimator" "$registry" "$_RF_STAGE" \
-      ${_RF_METADATA[@]+"${_RF_METADATA[@]}"} ${extra[@]+"${extra[@]}"} 2>/dev/null
-  )
+  local output
+  if ! output="$(python3 "$estimator" "$registry" "$_RF_STAGE" \
+        ${_RF_METADATA[@]+"${_RF_METADATA[@]}"} ${extra[@]+"${extra[@]}"})"; then
+    echo "run: resource estimation failed for $_RF_PIPELINE/$_RF_STAGE (error above)." >&2
+    echo "     Not submitting: without these flags Slurm would give the job its defaults (1 CPU)." >&2
+    echo "     python3 here is $(command -v python3) ($(python3 --version 2>&1))." >&2
+    exit 1
+  fi
+  if [ -n "$output" ]; then
+    mapfile -t RESOURCE_FLAGS <<< "$output"
+  fi
 }
 
 # Wraps `sbatch --parsable` so bash pipelines (miniscope) get the same

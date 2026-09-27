@@ -32,11 +32,14 @@ it inside the container:
 on it, then the real `sync.sh`, and checks the expected files landed both on
 local scratch and on Drive.
 
-    sbatch tests/run_mc_sync_test.sbatch
+    sbatch --output=$SCRATCH/logs/caiman_pipeline_test/%j.out \
+           --error=$SCRATCH/logs/caiman_pipeline_test/%j.err \
+           tests/run_mc_sync_test.sbatch
 
-Job output lands at `$SCRATCH/logs/caiman_pipeline_test/<jobid>.out`
-(the global, organized log location every stage now uses, set via
-`SBATCH_OUTPUT`/`SBATCH_ERROR` in `env_setup.sh`).
+Job output then lands at `$SCRATCH/logs/caiman_pipeline_test/<jobid>.out`,
+the same organized layout `run miniscope` uses for every stage. (This used to
+come from exporting `SBATCH_OUTPUT`/`SBATCH_ERROR` in `env_setup.sh`, but that
+silently redirected every other job the user submitted too.)
 
 Uses a dedicated identity, `pipeline_test_mouse/2020-01-01/test-session`,
 which never starts with `VK_`, so real reconciliation can never pick it up.

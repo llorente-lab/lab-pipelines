@@ -11,9 +11,19 @@ _JOB_TEMPLATE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$_JOB_TEMPLATE_DIR/monitor_resources.sh"
 
+# Safety net: SLURM_CPUS_PER_TASK only exists if the job was submitted with
+# --cpus-per-task. Stage scripts run under `set -u` and use it directly, so
+# without this a job submitted without it died on "unbound variable" before
+# doing anything. Fall back to what Slurm actually allocated, and say so loudly.
+if [ -z "${SLURM_CPUS_PER_TASK-}" ]; then
+  export SLURM_CPUS_PER_TASK="${SLURM_CPUS_ON_NODE:-1}"
+  echo "WARNING: job was submitted without --cpus-per-task; using SLURM_CPUS_ON_NODE=$SLURM_CPUS_PER_TASK." >&2
+  echo "         Resource estimation probably didn't run at submit time -- submit via \`run\`." >&2
+fi
+
 echo "==== JOB START: $(date) ===="
-echo "Node: $SLURMD_NODENAME"
-echo "Cores: $SLURM_CPUS_PER_TASK | Mem: $SLURM_MEM_PER_NODE MB"
+echo "Node: ${SLURMD_NODENAME:-unknown}"
+echo "Cores: $SLURM_CPUS_PER_TASK | Mem: ${SLURM_MEM_PER_NODE:-unset (per-CPU memory?)} MB"
 
 
 job_init() {

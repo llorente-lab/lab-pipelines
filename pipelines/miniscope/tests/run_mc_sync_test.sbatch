@@ -4,10 +4,10 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=32G
 #SBATCH --time=00:20:00
-# No --output/--error here: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh,
-# sourced automatically via ~/.bashrc) point these at an organized, global
-# location under $SCRATCH/logs/caiman_pipeline_test/ regardless of where
-# this gets submitted from.
+# No --output/--error here (#SBATCH lines can't expand $SCRATCH). Submit with
+# explicit flags to keep logs in the organized location, see tests/README.md:
+#   sbatch --output=$SCRATCH/logs/caiman_pipeline_test/%j.out \
+#          --error=$SCRATCH/logs/caiman_pipeline_test/%j.err tests/run_mc_sync_test.sbatch
 #
 # End-to-end smoke test: generates a tiny synthetic session, runs the real
 # motion_correct.py on it, then the real sync.sh, and checks the expected

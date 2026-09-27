@@ -3,8 +3,8 @@
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=4:00:00
-# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
-# $SCRATCH/logs/miniscope_multisession/.
+# No --output/--error here: `run miniscope` passes them explicitly, routing logs to
+# $SCRATCH/logs/multisession_registration/. A bare `sbatch` of this file writes slurm-%j.out in the cwd.
 
 CAIMAN_ROOT="${CAIMAN_ROOT:-${GROUP_HOME:-$HOME}/pipelines/current/pipelines/miniscope}"
 source "$CAIMAN_ROOT/common/env_setup.sh"

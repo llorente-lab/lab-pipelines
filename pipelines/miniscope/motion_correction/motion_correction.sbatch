@@ -3,8 +3,8 @@
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=24:00:00
-# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
-# $SCRATCH/logs/motion_correction/. Falls back to slurm-%j.out if those vars aren't set.
+# No --output/--error here: `run miniscope` passes them explicitly, routing logs to
+# $SCRATCH/logs/motion_correction/. A bare `sbatch` of this file writes slurm-%j.out in the cwd.
 
 # sbatch spools scripts to a temp path, so BASH_SOURCE-derived paths don't work here.
 # CAIMAN_ROOT points at the `current` symlink maintained by the deploy agent.

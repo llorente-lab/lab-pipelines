@@ -60,7 +60,10 @@ run_cnmfe() {
 mc_queue() {
   local mouse_filter="${1-}"
   local combined
-  combined="$( { apptainer_python "$MC_DIR/reconcile_motion_correction.py" --print-output
+  # `&&`, not a newline: with a plain `{ a; b; }` group, pipefail only sees
+  # b's exit status, so a failed Drive listing in `a` would be silently
+  # dropped and the sweep would run on half a queue.
+  combined="$( { apptainer_python "$MC_DIR/reconcile_motion_correction.py" --print-output &&
                  apptainer_python "$CNMFE_DIR/reconcile_cnmfe.py" --print-needs-mc; } | sort -u )"
   if [ -n "$mouse_filter" ]; then
     echo "$combined" | grep "^${mouse_filter}|" || true

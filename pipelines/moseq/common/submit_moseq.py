@@ -50,7 +50,8 @@ def _resource_flags(stage, metadata=None, exclusive=False, cores=None, mem_gb=No
     Thin wrapper around estimate_resources.resource_flags() -- the one
     implementation of the exclusive/cores/mem/time -> sbatch-flag logic,
     also used by miniscope's bash CLI (see cli/resources.sh). Falls back to
-    just the explicit overrides if the estimator/registry is missing.
+    just the explicit overrides only if the estimator/registry files don't
+    exist; if they exist but estimation fails, the error propagates.
 
     stage (str): resources.yaml stage key.
     metadata (dict or None): values the stage's formulas can reference.
@@ -65,14 +66,14 @@ def _resource_flags(stage, metadata=None, exclusive=False, cores=None, mem_gb=No
         cli_dir = str(_CLI_DIR)
         if cli_dir not in sys.path:
             sys.path.insert(0, cli_dir)
-        try:
-            from estimate_resources import resource_flags
-            return resource_flags(
-                str(_MOSEQ_REGISTRY), stage, metadata or {},
-                exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
-            )
-        except Exception:
-            pass
+        # No try/except here on purpose: if the registry exists but can't be
+        # used (e.g. PyYAML missing), submitting anyway would give the job
+        # Slurm's defaults and it would fail at startup. Let the error surface.
+        from estimate_resources import resource_flags
+        return resource_flags(
+            str(_MOSEQ_REGISTRY), stage, metadata or {},
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        )
 
     flags = []
     if exclusive:

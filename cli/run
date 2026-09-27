@@ -2,6 +2,15 @@
 
 set -euo pipefail
 
+# Same known-good interpreter poll_and_deploy.sh and the deploy checks use
+# (it has PyYAML). The login node's default python3 is too old and doesn't,
+# and `module load` from setup.sh doesn't persist into later shells. Everything
+# `run` calls (estimate_resources.py, submit_moseq.py, dashboard.py) inherits this.
+PYTHON_MODULE_BIN="/share/software/user/open/python/3.9.0/bin"
+if [ -d "$PYTHON_MODULE_BIN" ]; then
+  PATH="$PYTHON_MODULE_BIN:$PATH"
+fi
+
 CLI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PIPELINES_DIR="$CLI_DIR/pipelines"
 REPO_ROOT="$(cd "$CLI_DIR/.." && pwd)"

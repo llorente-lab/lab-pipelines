@@ -3,8 +3,8 @@
 #SBATCH --partition=illorent
 #SBATCH --nodes=1
 #SBATCH --time=7-00:00:00
-# No --output/--error: SBATCH_OUTPUT/SBATCH_ERROR (set in env_setup.sh) route logs to
-# $SCRATCH/logs/cnmfe/. Falls back to slurm-%j.out if those vars aren't set.
+# No --output/--error here: `run miniscope` passes them explicitly, routing logs to
+# $SCRATCH/logs/cnmfe/. A bare `sbatch` of this file writes slurm-%j.out in the cwd.
 #
 # Has an internal two-phase gate: sessions that need MC first get motion-corrected before
 # this script re-checks for newly-ready CNMF-E sessions (local gate, not the global hard

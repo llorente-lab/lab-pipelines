@@ -33,6 +33,11 @@ def _cached(key_parts, compute):
     file) falls back to just calling compute() -- caching is a speed
     optimization, never a correctness requirement.
 
+    Only successful results are cached: if compute() raises (e.g. an rclone
+    auth failure, see RcloneError), the exception propagates and nothing is
+    written, so a transient failure can't be replayed from cache for the
+    next _CACHE_TTL_S seconds.
+
     key_parts (tuple of str): pieces to combine into a cache key.
     compute (callable): zero-arg function producing the value to cache.
     """
@@ -45,7 +50,10 @@ def _cached(key_parts, compute):
     result = compute()
     try:
         _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result))
+        # Write-then-rename so a concurrent reader never sees a half-written file.
+        tmp_path = path.with_suffix(f".{os.getpid()}.tmp")
+        tmp_path.write_text(json.dumps(result))
+        os.replace(tmp_path, path)
     except Exception:
         pass
     return result
@@ -110,33 +118,79 @@ def slurm_worker_processes(reserve=1):
 
     Returns an int, always at least 1.
     """
-    allocated = os.environ.get("SLURM_CPUS_PER_TASK")
-    if allocated:
-        try:
-            return max(1, int(allocated) - reserve)
-        except ValueError:
-            pass
-    # Not running under Slurm (e.g. local testing) -- fall back to the
-    # host's own count, since there's no allocation to respect.
+    for var in ("SLURM_CPUS_PER_TASK", "SLURM_CPUS_ON_NODE"):
+        allocated = os.environ.get(var)
+        if allocated:
+            try:
+                return max(1, int(allocated) - reserve)
+            except ValueError:
+                pass
+    # The CPUs this process may actually run on. Inside a Slurm job this is
+    # the job's cpuset, so it stays correct even if the env vars are missing;
+    # psutil.cpu_count() would report the whole node (e.g. 256 on illorent)
+    # and start that many workers on a 1-core allocation.
+    if hasattr(os, "sched_getaffinity"):
+        return max(1, len(os.sched_getaffinity(0)) - reserve)
     import psutil
     return max(1, psutil.cpu_count() - reserve)
 
 
 def get_scratch_analyzed_base():
-    """Returns a str, the scratch path where analyzed Miniscope data lives."""
+    """
+    Returns a str, the scratch path where analyzed Miniscope data lives.
+
+    Honors MINISCOPE_ANALYZED_BASE (set by env_setup.sh according to
+    MINISCOPE_STORAGE_TIER) so reconciliation looks in the same place
+    motion_correct.py and cnmfe_modeling.py write to. Falls back to the
+    personal-scratch default only when the variable isn't set at all.
+    """
+    configured = os.environ.get("MINISCOPE_ANALYZED_BASE")
+    if configured:
+        return configured
     scratch = os.environ.get("SCRATCH", f"/scratch/users/{os.environ.get('USER', 'unknown')}")
     return f"{scratch}/Miniscope/AnalyzedData"
 
 
-def _rclone_list_files_uncached(remote_path):
-    """remote_path (str): rclone remote path to list. Returns a list of str."""
-    result = subprocess.run(
-        ["rclone", "lsf", "-R", "--files-only", remote_path],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
+# rclone's documented exit code for "directory not found". That one means the
+# remote path legitimately doesn't exist (e.g. a session with no Drive folder
+# yet), so it maps to an empty listing. Every other nonzero exit (auth expired,
+# quota, network) is a real failure and must not be mistaken for "no files".
+_RCLONE_DIR_NOT_FOUND = 3
+
+
+class RcloneError(RuntimeError):
+    """An rclone listing failed for a reason other than 'directory not found'."""
+
+
+def _run_rclone_lsf(cmd):
+    """
+    cmd (list of str): full rclone lsf command.
+
+    Returns a list of str (stripped, non-empty output lines). Returns [] if
+    the remote directory doesn't exist; raises RcloneError on any other
+    failure.
+    """
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode == _RCLONE_DIR_NOT_FOUND:
         return []
+    if result.returncode != 0:
+        raise RcloneError(
+            f"rclone failed (exit {result.returncode}): {' '.join(cmd)}\n"
+            f"{result.stderr.strip()}\n"
+            "Refusing to treat this as an empty listing -- that would make every "
+            "session look unprocessed. Check `rclone about gdrive:` / RCLONE_CONFIG."
+        )
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _rclone_list_files_uncached(remote_path):
+    """
+    remote_path (str): rclone remote path to list.
+
+    Returns a list of str. Raises RcloneError on failures other than
+    'directory not found'.
+    """
+    return _run_rclone_lsf(["rclone", "lsf", "-R", "--files-only", remote_path])
 
 
 def rclone_list_files(remote_path):
@@ -158,15 +212,13 @@ def _rclone_list_dirs_uncached(remote_path, max_depth):
     max_depth (int or None): passed to rclone's --max-depth, or unlimited
         if None.
 
-    Returns a list of str.
+    Returns a list of str. Raises RcloneError on failures other than
+    'directory not found'.
     """
     cmd = ["rclone", "lsf", "-R", "--dirs-only", remote_path]
     if max_depth is not None:
         cmd.insert(2, f"--max-depth={max_depth}")
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        return []
-    return [line.strip().rstrip("/") for line in result.stdout.splitlines() if line.strip()]
+    return [line.rstrip("/") for line in _run_rclone_lsf(cmd)]
 
 
 def rclone_list_dirs(remote_path, max_depth=None):
