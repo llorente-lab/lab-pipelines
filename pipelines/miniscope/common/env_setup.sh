@@ -39,12 +39,18 @@ else
   export MINISCOPE_ANALYZED_BASE="${MINISCOPE_ANALYZED_BASE:-$SCRATCH/Miniscope/AnalyzedData}"
 fi
 
-# One organized place for every job's .out/.err, regardless of where sbatch
-# is invoked from. SBATCH_OUTPUT/SBATCH_ERROR are real Slurm env vars read
-# at submission time, so $SCRATCH and %x/%j expand correctly (unlike inside
-# a #SBATCH comment, which sbatch never shell-expands).
-export SBATCH_OUTPUT="$SCRATCH/logs/%x/%j.out"
-export SBATCH_ERROR="$SCRATCH/logs/%x/%j.err"
+# One organized place for every miniscope job's .out/.err lives under
+# $SCRATCH/logs/<job-name>/. This is applied per submission by `run miniscope`
+# (see miniscope_log_flags in cli/pipelines/miniscope.sh) as explicit
+# --output/--error flags. It is deliberately NOT exported as
+# SBATCH_OUTPUT/SBATCH_ERROR here: this file is sourced from ~/.bashrc, and
+# those env vars override #SBATCH --output in *every* script the user
+# submits, including non-pipeline jobs whose log directory doesn't exist
+# (Slurm won't create it, so the job fails with no log at all).
+# Clear them only if they still hold the value an older version of this file
+# exported, so a user's own deliberate SBATCH_OUTPUT is left alone.
+[ "${SBATCH_OUTPUT-}" = "$SCRATCH/logs/%x/%j.out" ] && unset SBATCH_OUTPUT
+[ "${SBATCH_ERROR-}" = "$SCRATCH/logs/%x/%j.err" ] && unset SBATCH_ERROR
 
 mkdir -p "$SCRATCH/logs/motion_correction" "$SCRATCH/logs/cnmfe" \
          "$SCRATCH/logs/caiman_full_pipeline" "$SCRATCH/logs/caiman_pipeline_test" \

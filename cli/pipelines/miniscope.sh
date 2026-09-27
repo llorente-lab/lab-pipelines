@@ -26,6 +26,18 @@ analyzed_base() {
   echo "${MINISCOPE_ANALYZED_BASE:-$SCRATCH/Miniscope/AnalyzedData}"
 }
 
+# Sets LOG_FLAGS to explicit --output/--error flags under
+# $SCRATCH/logs/<job_name>/, creating the directory first (Slurm won't, and a
+# missing log directory makes the job fail before it prints anything).
+# job_name must match the #SBATCH --job-name in the stage's .sbatch file so
+# `run logs` finds the files where it expects them.
+miniscope_log_flags() {
+  local job_name="$1"
+  local log_dir="$SCRATCH/logs/$job_name"
+  mkdir -p "$log_dir"
+  LOG_FLAGS=("--output=$log_dir/%j.out" "--error=$log_dir/%j.err")
+}
+
 cmd_miniscope() {
   local stage="${1-}"; shift || true
 
@@ -55,17 +67,18 @@ cmd_miniscope() {
       fi
       [ -n "$EXCLUSIVE" ] && _force_exclusive
       _apply_resource_overrides "$CORES" "$MEM" "$WALLTIME"
+      miniscope_log_flags motion_correction
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
         _sbatch_submit "$(analyzed_base)/$MOUSE/$DATE/$TP/status" motion-correction \
-          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
         _sbatch_submit "$(analyzed_base)/$MOUSE/status" motion-correction \
-          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch" "$MOUSE"
       else
         _sbatch_submit "$(analyzed_base)/status" motion-correction \
-          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_MC_DIR/motion_correction.sbatch"
       fi
       ;;
@@ -78,17 +91,18 @@ cmd_miniscope() {
       fi
       [ -n "$EXCLUSIVE" ] && _force_exclusive
       _apply_resource_overrides "$CORES" "$MEM" "$WALLTIME"
+      miniscope_log_flags cnmfe
       if [ -n "$MOUSE" ] && [ -n "$DATE" ] && [ -n "$TP" ]; then
         _sbatch_submit "$(analyzed_base)/$MOUSE/$DATE/$TP/status" cnmfe \
-          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE" "$DATE" "$TP"
       elif [ -n "$MOUSE" ]; then
         _sbatch_submit "$(analyzed_base)/$MOUSE/status" cnmfe \
-          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch" "$MOUSE"
       else
         _sbatch_submit "$(analyzed_base)/status" cnmfe \
-          ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+          "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
           "$CAIMAN_CNMFE_DIR/cnmfe.sbatch"
       fi
       ;;
@@ -106,8 +120,9 @@ cmd_miniscope() {
       _set_resource_flags miniscope full-pipeline
       [ -n "$exclusive" ] && _force_exclusive
       _apply_resource_overrides "$cores" "$mem" "$walltime"
+      miniscope_log_flags caiman_full_pipeline
       _sbatch_submit "$(analyzed_base)/status" full-pipeline \
-        ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
         "$CAIMAN_ROOT_DIR/full_pipeline.sbatch"
       ;;
     multisession)
@@ -126,9 +141,10 @@ cmd_miniscope() {
       _set_resource_flags miniscope multisession
       [ -n "$exclusive" ] && _force_exclusive
       _apply_resource_overrides "$cores" "$mem" "$walltime"
+      miniscope_log_flags multisession_registration
       # shellcheck disable=SC2086
       _sbatch_submit "$(analyzed_base)/status" multisession \
-        ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
+        "${LOG_FLAGS[@]}" ${RESOURCE_FLAGS[@]+"${RESOURCE_FLAGS[@]}"} ${_mail_flags[@]+"${_mail_flags[@]}"} \
         "$CAIMAN_ROOT_DIR/multisession/multisession_registration.sbatch" \
         ${mouse:+--mouse "$mouse"} $force_flag
       ;;

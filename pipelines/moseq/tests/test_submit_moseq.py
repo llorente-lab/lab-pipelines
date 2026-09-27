@@ -67,10 +67,26 @@ class TestResourceFlags(unittest.TestCase):
         flags = submit_moseq._resource_flags("pca-fit", {"n_sessions": 4})
         self.assertIn("--mem=200G", flags)
 
-    def test_unknown_stage_returns_no_registry_derived_flags(self):
-        flags = submit_moseq._resource_flags("not-a-real-stage", {})
-        self.assertFalse(any(f.startswith("--partition=") for f in flags))
-        self.assertFalse(any(f.startswith("--cpus-per-task=") for f in flags))
+    def test_unknown_stage_raises_instead_of_submitting_with_defaults(self):
+        # Used to return [] silently, which submitted the job with Slurm's
+        # defaults (1 CPU) -- a wiring mistake should stop the submission.
+        import estimate_resources
+        with self.assertRaises(estimate_resources.ResourceEstimationError):
+            submit_moseq._resource_flags("not-a-real-stage", {})
+
+    def test_missing_pyyaml_raises_instead_of_submitting_with_defaults(self):
+        import estimate_resources
+        with mock.patch.object(estimate_resources, "yaml", None):
+            with self.assertRaises(estimate_resources.ResourceEstimationError):
+                submit_moseq._resource_flags("pca-fit", {"n_sessions": 4})
+
+    def test_bad_formula_metadata_falls_back_with_warning(self):
+        # n_sessions=None (aggregate_results/ not there yet) can't be
+        # multiplied; the stage's fallback is used, and it's no longer silent.
+        with mock.patch("sys.stderr") as fake_stderr:
+            flags = submit_moseq._resource_flags("pca-fit", {"n_sessions": None})
+        self.assertIn("--mem=400G", flags)
+        self.assertTrue(fake_stderr.write.called)
 
 
 class TestSbatchJobIdParsing(unittest.TestCase):

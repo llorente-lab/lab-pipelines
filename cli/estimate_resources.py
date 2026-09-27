@@ -30,6 +30,10 @@ except ImportError:
         yaml = None
 
 
+class ResourceEstimationError(RuntimeError):
+    """The registry couldn't be read or doesn't cover the requested stage."""
+
+
 def estimate(resources_yaml, stage, metadata):
     """
     Resource requirements for stage given metadata.
@@ -42,20 +46,31 @@ def estimate(resources_yaml, stage, metadata):
     missing key means "no opinion." `partition` can be a plain string or a
     YAML list (e.g. `[illorent, normal]`); resource_flags() turns a list
     into Slurm's comma-separated --partition=X,Y syntax.
+
+    Raises ResourceEstimationError if the registry can't be read or doesn't
+    define `stage`. These used to return {} silently, which submitted the
+    job with Slurm's defaults (1 CPU, small memory) and no warning.
     """
     if yaml is None:
-        return {}
+        raise ResourceEstimationError(
+            f"PyYAML isn't importable from {sys.executable} (Python "
+            f"{sys.version.split()[0]}). Use the python that has it (the "
+            f"python/3.9.0 module on Sherlock), or `pip install --user pyyaml`."
+        )
     path = Path(resources_yaml)
     if not path.exists():
-        return {}
+        raise ResourceEstimationError(f"resource registry not found: {path}")
     with open(path) as f:
         if hasattr(yaml, "safe_load"):
             registry = yaml.safe_load(f)
         else:
             registry = yaml.YAML().load(f)
-    stage_cfg = (registry or {}).get("stages", {}).get(stage)
+    stages = (registry or {}).get("stages", {})
+    stage_cfg = stages.get(stage)
     if not stage_cfg:
-        return {}
+        raise ResourceEstimationError(
+            f"stage '{stage}' isn't defined in {path} (known stages: {', '.join(sorted(stages))})"
+        )
 
     result: dict = {
         "partition": stage_cfg.get("partition", "illorent"),
@@ -76,7 +91,13 @@ def estimate(resources_yaml, stage, metadata):
                 value = max(minimum, value)
                 if maximum is not None:
                     value = min(maximum, value)
-            except Exception:
+            except Exception as e:
+                print(
+                    f"estimate_resources: warning: {stage}.{resource} formula "
+                    f"{formula!r} failed ({e!r}) with metadata {metadata}; "
+                    f"using fallback {fallback}",
+                    file=sys.stderr,
+                )
                 value = None
         if value is None:
             value = fallback
@@ -178,10 +199,15 @@ def main():
         else:
             i += 1
 
-    for flag in resource_flags(
-        resources_yaml, stage, metadata,
-        exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
-    ):
+    try:
+        flags = resource_flags(
+            resources_yaml, stage, metadata,
+            exclusive=exclusive, cores=cores, mem_gb=mem_gb, time=time,
+        )
+    except ResourceEstimationError as e:
+        print(f"estimate_resources: error: {e}", file=sys.stderr)
+        sys.exit(1)
+    for flag in flags:
         print(flag)
 
 

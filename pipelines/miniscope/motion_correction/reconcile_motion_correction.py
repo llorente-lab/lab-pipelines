@@ -15,6 +15,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "common"))
 from reconcile_common import (
     ANALYZED_DONE_PATHS,
+    RcloneError,
     collect_marker_dirs,
     is_cnmfe_model,
     is_correlation_image,
@@ -68,4 +69,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except RcloneError as e:
+        # Exit nonzero with a readable message (not a traceback) so the
+        # calling sbatch script stops instead of acting on a bogus queue.
+        print(f"reconcile: {e}", file=sys.stderr)
+        sys.exit(2)

@@ -201,5 +201,70 @@ class TestScratchLookups(unittest.TestCase):
         self.assertIsNotNone(result)
 
 
+class TestScratchAnalyzedBase(unittest.TestCase):
+    """Reconciliation must look where the stages write (MINISCOPE_ANALYZED_BASE),
+    otherwise group-tier sessions look like their mmap is missing forever."""
+
+    def test_honors_miniscope_analyzed_base(self):
+        with mock.patch.dict(rc.os.environ, {"MINISCOPE_ANALYZED_BASE": "/scratch/groups/lab/Miniscope/AnalyzedData",
+                                             "SCRATCH": "/scratch/users/me"}):
+            self.assertEqual(rc.get_scratch_analyzed_base(), "/scratch/groups/lab/Miniscope/AnalyzedData")
+
+    def test_falls_back_to_personal_scratch_when_unset(self):
+        env = {"SCRATCH": "/scratch/users/me"}
+        with mock.patch.dict(rc.os.environ, env, clear=True):
+            self.assertEqual(rc.get_scratch_analyzed_base(), "/scratch/users/me/Miniscope/AnalyzedData")
+
+
+class TestRcloneFailureHandling(unittest.TestCase):
+    """A failed Drive listing must never look like an empty one."""
+
+    @staticmethod
+    def _completed(returncode, stdout="", stderr=""):
+        return rc.subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
+
+    def test_success_returns_stripped_lines(self):
+        with mock.patch.object(rc.subprocess, "run", return_value=self._completed(0, "a/b.npy\n\n c.zip \n")):
+            self.assertEqual(rc._run_rclone_lsf(["rclone", "lsf"]), ["a/b.npy", "c.zip"])
+
+    def test_directory_not_found_is_empty(self):
+        with mock.patch.object(rc.subprocess, "run", return_value=self._completed(3, stderr="directory not found")):
+            self.assertEqual(rc._run_rclone_lsf(["rclone", "lsf"]), [])
+
+    def test_other_failures_raise(self):
+        with mock.patch.object(rc.subprocess, "run", return_value=self._completed(1, stderr="token expired")):
+            with self.assertRaises(rc.RcloneError):
+                rc._run_rclone_lsf(["rclone", "lsf"])
+
+    def test_dirs_strip_trailing_slash(self):
+        with mock.patch.object(rc.subprocess, "run", return_value=self._completed(0, "VK_a/2025-01-01/tp1/\n")):
+            self.assertEqual(rc._rclone_list_dirs_uncached("gdrive:x", 3), ["VK_a/2025-01-01/tp1"])
+
+
+class TestCacheSkipsFailures(unittest.TestCase):
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.cache_patch = mock.patch.object(rc, "_CACHE_DIR", self.tmp)
+        self.cache_patch.start()
+
+    def tearDown(self):
+        self.cache_patch.stop()
+        shutil.rmtree(self.tmp)
+
+    def test_exception_is_not_cached(self):
+        def failing():
+            raise rc.RcloneError("boom")
+        with self.assertRaises(rc.RcloneError):
+            rc._cached(("k",), failing)
+        # Next call must recompute, not replay a cached empty result.
+        self.assertEqual(rc._cached(("k",), lambda: ["fresh"]), ["fresh"])
+
+    def test_success_is_cached(self):
+        self.assertEqual(rc._cached(("k2",), lambda: ["first"]), ["first"])
+        self.assertEqual(rc._cached(("k2",), lambda: ["second"]), ["first"])
+        self.assertEqual(list(self.tmp.glob("*.tmp")), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
