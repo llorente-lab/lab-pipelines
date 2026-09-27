@@ -337,9 +337,19 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
         gsig_tmp = (3, 3)
         subsample_factor = max(T // 1000, 1)
         correlation_image, _ = cm.summary_images.correlation_pnr(
-            images[::subsample_factor], gSig=gsig_tmp[0], swap_dim=False,
+            images, gSig=gsig_tmp[0], swap_dim=False,
         )
         timing_log['correlation_pnr'] = log_step_time("Correlation/PNR", step_start)
+
+        # Pixels whose correlation is undefined (flat pixels that never rise
+        # above their noise level) come back as NaN. A single NaN makes
+        # min()/max() NaN and turns the whole PNG into garbage, so treat them
+        # as "no correlation".
+        n_nan = int(np.isnan(correlation_image).sum())
+        if n_nan:
+            print(f"Correlation image: {n_nan} NaN pixel(s) "
+                  f"({100 * n_nan / correlation_image.size:.2f}%) set to 0")
+            correlation_image = np.nan_to_num(correlation_image, nan=0.0)
 
         # correlation_image.npy is the Drive-visible proof that MC ran; the mmap never syncs.
         corr_npy_path = data_dir / 'correlation_image.npy'
@@ -357,6 +367,7 @@ def main(mouse, date, tp, raw_base=None, analyzed_base=None, frame_limit=FRAME_L
             'original_dtype': str(correlation_image.dtype),
             'original_min': float(correlation_image.min()),
             'original_max': float(correlation_image.max()),
+            'nan_pixels_set_to_0': n_nan,
             'note': 'Normalized to 0-255 uint8 for PNG export.',
         }
         with open(data_dir / f'correlation_image_{mouse}_{tp}_metadata.txt', 'w') as f:
